@@ -61,7 +61,7 @@ using namespace synfig;
 
 /* === M E T H O D S ======================================================= */
 
-Distance::Distance(const synfig::String& str)
+Distance::Distance(const synfig::String& str): value_(), system_()
 {
 	(*this)=str;
 /*	int i(0);
@@ -114,7 +114,7 @@ synfig::String
 Distance::get_string(int digits)const
 {
 	digits=min(9,max(0,digits));
-	String fmt(strprintf("%%.%01dg",digits));
+	String fmt(strprintf("%%.%01df",digits));
 	String str(strprintf(fmt.c_str(),value_));
 	return strprintf("%s%s",str.c_str(),system_name(system_).c_str());
 }
@@ -154,12 +154,9 @@ Distance::meters()const
 Real
 Distance::meters(const RendDesc& rend_desc)const
 {
-	if(system_>SYSTEM_PIXELS)
-		return meters();
-	if(system_==SYSTEM_UNITS)
-		return value_*METERS_PER_UNIT;
-	if(system_==SYSTEM_PIXELS)
-		return value_/rend_desc.get_x_res();
+	if (system_ == SYSTEM_UNITS)  return value_*METERS_PER_UNIT;
+	if (system_ == SYSTEM_PIXELS) return value_/rend_desc.get_x_res();
+	if (system_ > SYSTEM_PIXELS)  return meters();
 
 	throw BadSystem();
 }
@@ -232,17 +229,16 @@ Distance::system_name(Distance::System system)
 {
 	switch(system)
 	{
-		case SYSTEM_UNITS:		return "u";
-		case SYSTEM_PIXELS:		return "px";
-		case SYSTEM_POINTS:		return "pt";
-		case SYSTEM_INCHES:		return "in";
-		case SYSTEM_METERS:		return "m";
-		case SYSTEM_MILLIMETERS:	return "mm";
-		case SYSTEM_CENTIMETERS:	return "cm";
+		case SYSTEM_UNITS:		 return "u";
+		case SYSTEM_PIXELS:		 return "px";
+		case SYSTEM_POINTS:		 return "pt";
+		case SYSTEM_INCHES:		 return "in";
+		case SYSTEM_METERS:		 return "m";
+		case SYSTEM_MILLIMETERS: return "mm";
+		case SYSTEM_CENTIMETERS: return "cm";
 
-		default:				throw BadSystem();
+		default:				 throw BadSystem();
 	}
-	return synfig::String();
 }
 
 synfig::String  // (static)

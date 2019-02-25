@@ -57,8 +57,8 @@ SYNFIG_IMPORTER_SET_SUPPORTS_FILE_SYSTEM_WRAPPER(Importer_LibAVCodec, false);
 /* === M E T H O D S ======================================================= */
 
 
-Importer_LibAVCodec::Importer_LibAVCodec(const char *file):
-	filename(file)
+Importer_LibAVCodec::Importer_LibAVCodec(const synfig::FileSystem::Identifier &identifier):
+	Importer(identifier)
 {
 }
 
@@ -67,7 +67,7 @@ Importer_LibAVCodec::~Importer_LibAVCodec()
 }
 
 bool
-Importer_LibAVCodec::get_frame(synfig::Surface &/*surface*/, const synfig::RendDesc &renddesc, Time, synfig::ProgressCallback */*cb*/)
+Importer_LibAVCodec::get_frame(Surface &/*surface*/, const RendDesc &/*renddesc*/, Time /*time*/, ProgressCallback */*callback*/)
 {
 	return false;
 }

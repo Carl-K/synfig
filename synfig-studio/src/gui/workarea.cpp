@@ -10,6 +10,7 @@
 **	Copyright (c) 2007, 2008 Chris Moore
 **	Copyright (c) 2011 Nikita Kitaev
 **	Copyright (c) 2016 caryoscelus
+**  ......... ... 2018 Ivan Mahonin
 **
 **	This package is free software; you can redistribute it and/or
 **	modify it under the terms of the GNU General Public License as
@@ -61,7 +62,7 @@
 
 #include <gui/localization.h>
 
-#include "asyncrenderer.h"
+#include "helpers.h"
 #include "canvasview.h"
 #include "event_mouse.h"
 #include "event_layerclick.h"
@@ -90,572 +91,43 @@ using namespace studio;
 
 /* === M A C R O S ========================================================= */
 
+#define THUMB_SIZE 128;
+
 #ifndef stratof
 #define stratof(X) (atof((X).c_str()))
 #define stratoi(X) (atoi((X).c_str()))
 #endif
 
-
 /* === G L O B A L S ======================================================= */
 
 /* === C L A S S E S ======================================================= */
 
-class studio::WorkAreaTarget : public synfig::Target_Tile
-{
-public:
-	WorkArea *workarea;
-	int w,h;
-	int real_tile_w,real_tile_h;
-	int max_tile_w,max_tile_h;
-	bool force_fullframe;
-
-	int refresh_id;
-
-	bool onionskin;
-	bool onion_first_tile;
-	int onion_layers;
-
-	std::list<synfig::Time> onion_skin_queue;
-
-	std::vector<RectInt> tiles_queue;
-
-	synfig::Mutex mutex;
-
-	void set_onion_skin(bool x, int *onions)
-	{
-		onionskin=x;
-
-		Time time(rend_desc().get_time_start());
-
-		if(!onionskin)
-			return;
-		onion_skin_queue.push_back(time);
-
-		try
-		{
-		Time thistime=time;
-		for(int i=0; i<onions[0]; i++)
-			{
-				Time keytime=get_canvas()->keyframe_list().find_prev(thistime)->get_time();
-				onion_skin_queue.push_back(keytime);
-				thistime=keytime;
-			}
-		}
-		catch(...)
-		{  }
-
-		try
-		{
-		Time thistime=time;
-		for(int i=0; i<onions[1]; i++)
-			{
-				Time keytime=get_canvas()->keyframe_list().find_next(thistime)->get_time();
-				onion_skin_queue.push_back(keytime);
-				thistime=keytime;
-			}
-		}
-		catch(...)
-		{  }
-
-		onion_layers=onion_skin_queue.size();
-
-		onion_first_tile=false;
-	}
-public:
-
-	WorkAreaTarget(WorkArea *workarea, int w, int h, int max_tile_w, int max_tile_h, bool force_fullframe):
-		workarea(workarea),
-		w(w),
-		h(h),
-		real_tile_w(workarea->get_tile_w()),
-		real_tile_h(workarea->get_tile_h()),
-		force_fullframe(force_fullframe),
-		max_tile_w(max_tile_w),
-		max_tile_h(max_tile_h),
-		refresh_id(workarea->get_refreshes()),
-		onionskin(false),
-		onion_first_tile(),
-		onion_layers(0)
-	{
-		//set_remove_alpha();
-		//set_avoid_time_sync();
-		set_clipping(true);
-		set_tile_w(workarea->tile_w);
-		set_tile_h(workarea->tile_h);
-		set_canvas(workarea->get_canvas());
-		set_quality(workarea->get_quality());
-	}
-
-	~WorkAreaTarget()
-	{
-		workarea->queue_draw();
-	}
-
-	virtual bool set_rend_desc(synfig::RendDesc *newdesc)
-	{
-		assert(workarea);
-		newdesc->set_flags(RendDesc::PX_ASPECT|RendDesc::IM_SPAN);
-		newdesc->set_wh(w, h);
-
-		if ( workarea->get_w() != w
-		  || workarea->get_h() != h )
-			workarea->set_wh(w, h, 4);
-
-		workarea->full_frame=false;
-		desc = *newdesc;
-
-		return true;
-	}
-
-	virtual int next_frame(Time& time)
-	{
-		synfig::Mutex::Lock lock(mutex);
-
-		RectInt window_rect = workarea->get_window_rect(get_tile_w(), get_tile_h());
-
-		if (force_fullframe)
-		{
-			tiles_queue.clear();
-			tiles_queue.push_back(window_rect);
-		}
-		else
-		{
-			workarea->get_tile_book().get_dirty_rects(
-				tiles_queue,
-				refresh_id - onion_skin_queue.size(),
-				window_rect,
-				VectorInt(max_tile_w, max_tile_h) );
-		}
-
-		if(!onionskin)
-			return synfig::Target_Tile::next_frame(time);
-
-		onion_first_tile=(onion_layers==(signed)onion_skin_queue.size());
-
-		if(!onion_skin_queue.empty())
-		{
-			time=onion_skin_queue.front();
-			onion_skin_queue.pop_front();
-		}
-		else
-			return 0;
-
-		return onion_skin_queue.size()+1;
-	}
-
-	virtual int next_tile(RectInt &rect)
-	{
-		synfig::Mutex::Lock lock(mutex);
-		if (tiles_queue.empty())
-			return 0;
-
-		rect = tiles_queue.back();
-		tiles_queue.pop_back();
-		return (int)tiles_queue.size() + 1;
-	}
-
-	virtual bool start_frame(synfig::ProgressCallback */*cb*/)
-	{
-		return true;
-	}
-
-	static void free_buff(const guint8 *x) { free(const_cast<guint8*>(x)); }
-
-	virtual bool add_tile(const synfig::Surface &surface, int x, int y)
-	{
-		synfig::Mutex::Lock lock(mutex);
-		assert(surface);
-
-		PixelFormat pf(PF_RGB|PF_A);
-
-		const int total_bytes(surface.get_w()*surface.get_h()*synfig::channels(pf));
-
-		unsigned char *buffer((unsigned char*)malloc(total_bytes));
-
-		if(!surface || !buffer)
-			return false;
-		{
-			unsigned char *dest(buffer);
-			const Color *src(surface[0]);
-			int w(surface.get_w());
-			int x(w*surface.get_h());
-			for(int i=0;i<x;i++)
-				dest=Color2PixelFormat(
-									   (*(src++)).clamped(),
-									   pf,
-									   dest,
-									   App::gamma
-									   );
-		}
-
-		Glib::RefPtr<Gdk::Pixbuf> pixbuf;
-
-		pixbuf=Gdk::Pixbuf::create_from_data(
-			buffer,	// pointer to the data
-			Gdk::COLORSPACE_RGB, // the colorspace
-			((pf&PF_A)==PF_A), // has alpha?
-			8, // bits per sample
-			surface.get_w(),	// width
-			surface.get_h(),	// height
-			surface.get_w()*synfig::channels(pf), // stride (pitch)
-			sigc::ptr_fun(&WorkAreaTarget::free_buff)
-		);
-
-		RectInt rect(x, y, x + pixbuf->get_width(), y + pixbuf->get_height());
-		WorkAreaTile *tile = workarea->get_tile_book().find_tile(refresh_id - onion_skin_queue.size() - 1, rect);
-
-		if(!onionskin || onion_first_tile || !tile || !tile->pixbuf)
-		{
-			workarea->get_tile_book().add(refresh_id - onion_skin_queue.size(), x, y, pixbuf);
-		}
-		else
-		{
-			pixbuf->composite(
-				tile->pixbuf, // Dest
-				0,//int dest_x
-				0,//int dest_y
-				pixbuf->get_width(), // dest width
-				pixbuf->get_height(), // dest_height,
-				0, // double offset_x
-				0, // double offset_y
-				1, // double scale_x
-				1, // double scale_y
-				Gdk::INTERP_NEAREST, // interp
-				255/(onion_layers-onion_skin_queue.size()+1) //int overall_alpha
-			);
-			tile->refresh_id = refresh_id - onion_skin_queue.size();
-			workarea->get_tile_book().sort();
-		}
-
-		//if(index%2)
-			workarea->queue_draw();
-		return true;
-	}
-
-	virtual void end_frame()
-	{
-		//workarea->queue_draw();
-	}
-};
-
-
-class studio::WorkAreaTarget_Full : public synfig::Target_Scanline
-{
-public:
-	WorkArea *workarea;
-	int w,h;
-	int real_tile_w,real_tile_h;
-
-	int refresh_id;
-
-	bool onionskin;
-	bool onion_first_tile;
-	int onion_layers;
-
-	Surface surface;
-
-	std::list<synfig::Time> onion_skin_queue;
-
-	void set_onion_skin(bool x, int *onions)
-	{
-		onionskin=x;
-
-		Time time(rend_desc().get_time_start());
-
-		if(!onionskin)
-			return;
-		onion_skin_queue.push_back(time);
-		//onion_skin_queue.push_back(time-1);
-		//onion_skin_queue.push_back(time+1);
-		try
-		{
-		Time thistime=time;
-		for(int i=0; i<onions[0]; i++)
-			{
-				Time keytime=get_canvas()->keyframe_list().find_prev(thistime)->get_time();
-				onion_skin_queue.push_back(keytime);
-				thistime=keytime;
-			}
-		}
-		catch(...)
-		{  }
-
-		try
-		{
-		Time thistime=time;
-		for(int i=0; i<onions[1]; i++)
-			{
-				Time keytime=get_canvas()->keyframe_list().find_next(thistime)->get_time();
-				onion_skin_queue.push_back(keytime);
-				thistime=keytime;
-			}
-		}
-		catch(...)
-		{  }
-
-		onion_layers=onion_skin_queue.size();
-
-		onion_first_tile=false;
-	}
-public:
-
-	WorkAreaTarget_Full(WorkArea *workarea,int w, int h):
-		workarea(workarea),
-		w(w),
-		h(h),
-		real_tile_w(),
-		real_tile_h(),
-		refresh_id(workarea->refreshes),
-		onionskin(false),
-		onion_first_tile(),
-		onion_layers(0)
-	{
-		set_canvas(workarea->get_canvas());
-		set_quality(workarea->get_quality());
-	}
-
-	~WorkAreaTarget_Full()
-	{ }
-
-	virtual bool set_rend_desc(synfig::RendDesc *newdesc)
-	{
-		assert(workarea);
-		newdesc->set_flags(RendDesc::PX_ASPECT | RendDesc::IM_SPAN);
-		newdesc->set_wh(w, h);
-		if (workarea->get_w()!=w ||	workarea->get_h()!=h)
-			workarea->set_wh(w, h, 4);
-		surface.set_wh(newdesc->get_w(),newdesc->get_h());
-		desc=*newdesc;
-		workarea->full_frame=true;
-		return true;
-	}
-
-	virtual int next_frame(Time& time)
-	{
-		if(!onionskin)
-			return synfig::Target_Scanline::next_frame(time);
-		onion_first_tile = (onion_layers==(signed)onion_skin_queue.size());
-		if(!onion_skin_queue.empty())
-		{
-			time=onion_skin_queue.front();
-			onion_skin_queue.pop_front();
-		}
-		else
-			return 0;
-		return onion_skin_queue.size()+1;
-	}
-
-
-	virtual bool start_frame(synfig::ProgressCallback */*cb*/)
-	{
-		return true;
-	}
-
-	virtual Color * start_scanline(int scanline)
-	{
-		return surface[scanline];
-	}
-
-	virtual bool end_scanline()
-	{
-		return true;
-	}
-
-	static void free_buff(const guint8 *x) { free(const_cast<guint8*>(x)); }
-
-	virtual void end_frame()
-	{
-		assert(surface);
-
-		PixelFormat pf(PF_RGB|PF_A);
-
-		const int total_bytes(surface.get_w()*surface.get_h()*synfig::channels(pf));
-
-		unsigned char *buffer((unsigned char*)malloc(total_bytes));
-
-		if(!surface || !buffer)
-			return;
-		// Copy the content of surface to the buffer
-		{
-			unsigned char *dest(buffer);
-			const Color *src(surface[0]);
-			int w(surface.get_w());
-			int x(w*surface.get_h());
-			for(int i=0;i<x;i++)
-				dest=Color2PixelFormat(
-									   (*(src++)).clamped(),
-									   pf,
-									   dest,
-									   App::gamma
-									   );
-		}
-
-		Glib::RefPtr<Gdk::Pixbuf> pixbuf;
-
-		pixbuf=Gdk::Pixbuf::create_from_data(
-			buffer,	// pointer to the data
-			Gdk::COLORSPACE_RGB, // the colorspace
-			((pf&PF_A)==PF_A), // has alpha?
-			8, // bits per sample
-			surface.get_w(),	// width
-			surface.get_h(),	// height
-			surface.get_w()*synfig::channels(pf), // stride (pitch)
-			sigc::ptr_fun(&WorkAreaTarget::free_buff)
-		);
-
-		RectInt rect(0, 0, pixbuf->get_width(), pixbuf->get_height());
-		WorkAreaTile *tile = workarea->get_tile_book().find_tile(refresh_id - onion_skin_queue.size() - 1, rect);
-
-		if(!onionskin || onion_first_tile || !tile || !tile->pixbuf)
-		{
-			workarea->get_tile_book().add(refresh_id - onion_skin_queue.size(), 0, 0, pixbuf);
-		}
-		else
-		{
-			pixbuf->composite(
-				tile->pixbuf, // Dest
-				0,//int dest_x
-				0,//int dest_y
-				pixbuf->get_width(), // dest width
-				pixbuf->get_height(), // dest_height,
-				0, // double offset_x
-				0, // double offset_y
-				1, // double scale_x
-				1, // double scale_y
-				Gdk::INTERP_NEAREST, // interp
-				255/(onion_layers-onion_skin_queue.size()+1) //int overall_alpha
-			);
-			tile->refresh_id = refresh_id - onion_skin_queue.size();
-			workarea->get_tile_book().sort();
-		}
-
-		workarea->queue_draw();
-	}
-};
-
 /* === M E T H O D S ======================================================= */
 
-WorkAreaTile*
-WorkAreaTileBook::find_tile(int refresh_id, const synfig::RectInt &rect)
+WorkArea::PushState::PushState(WorkArea &workarea):
+	workarea(workarea),
+	type_mask(workarea.get_type_mask()),
+	allow_duck_clicks(workarea.get_allow_duck_clicks()),
+	allow_bezier_clicks(workarea.get_allow_bezier_clicks()),
+	allow_layer_clicks(workarea.get_allow_layer_clicks()) { }
+
+WorkArea::PushState::~PushState()
 {
-	for(WorkAreaTile::List::iterator i = tiles.begin(); i != tiles.end(); ++i)
-		if (i->refresh_id >= refresh_id && i->rect == rect)
-			return &*i;
-	return NULL;
+	workarea.set_type_mask(type_mask);
+	workarea.get_canvas_view()->toggle_duck_mask(Duck::TYPE_NONE);
+	workarea.set_allow_duck_clicks(allow_duck_clicks);
+	workarea.set_allow_bezier_clicks(allow_bezier_clicks);
+	workarea.set_allow_layer_clicks(allow_layer_clicks);
 }
 
-void
-WorkAreaTileBook::sort()
+
+WorkArea::DirtyTrap::DirtyTrap(WorkArea &work_area):
+	work_area(work_area) { ++work_area.dirty_trap_count; }
+
+WorkArea::DirtyTrap::~DirtyTrap()
 {
-	tiles.sort();
-	for(WorkAreaTile::List::iterator i = tiles.begin(); i != tiles.end(); ++i)
-		for(WorkAreaTile::List::iterator j = tiles.begin(); j != i;)
-			if (j->refresh_id < i->refresh_id && etl::intersect(i->rect, j->rect))
-				{ WorkAreaTile::List::iterator k = j; ++j; tiles.erase(k); } else ++j;
-}
-
-void
-WorkAreaTileBook::add(const WorkAreaTile &tile)
-{
-	if (!tile.rect.valid() || !tile.pixbuf)
-		return;
-	tiles.push_back(tile);
-	sort();
-}
-
-void
-WorkAreaTileBook::get_dirty_rects(
-	std::vector<synfig::RectInt> &out_rects,
-	int refresh_id,
-	const synfig::RectInt &bounds,
-	const synfig::VectorInt &max_size) const
-{
-	out_rects.clear();
-	if (!bounds.valid())
-		return;
-
-	out_rects.push_back(bounds);
-	std::vector<synfig::RectInt> subs;
-	subs.reserve(4);
-
-	// remove updated rects
-	for(WorkAreaTile::List::const_iterator i = tiles.begin(); i != tiles.end(); ++i)
-	{
-		assert(i->rect.valid());
-		if (i->refresh_id >= refresh_id)
-		{
-			for(std::vector<synfig::RectInt>::iterator j = out_rects.begin(); j != out_rects.end();)
-			{
-				assert(j->valid());
-				RectInt rect = *j;
-				etl::set_intersect(rect, rect, i->rect);
-				if (rect.valid())
-				{
-					subs.clear();
-					if (rect.minx != j->minx)
-						subs.push_back(RectInt(j->minx, j->miny, rect.minx, j->maxy));
-					if (rect.maxx != j->maxx)
-						subs.push_back(RectInt(rect.maxx, j->miny, j->maxx, j->maxy));
-					if (rect.miny != j->miny)
-						subs.push_back(RectInt(rect.minx, j->miny, rect.maxx, rect.miny));
-					if (rect.maxy != j->maxy)
-						subs.push_back(RectInt(rect.minx, rect.maxy, rect.maxx, j->maxy));
-
-					if (subs.empty())
-						j = out_rects.erase(j);
-					else
-					{
-						*j = subs.front();
-						int index = j - out_rects.begin();
-						out_rects.insert(j+1, subs.begin()+1, subs.end());
-						j = out_rects.begin() + index + subs.size();
-					}
-				}
-				else
-					++j;
-			}
-		}
-	}
-
-	// merge rects
-	for(int i = 0; i < (int)out_rects.size(); ++i)
-	{
-		RectInt &r = out_rects[i];
-		for(std::vector<synfig::RectInt>::iterator j = out_rects.begin(); j != out_rects.end();)
-		{
-			bool remove = false;
-			if (r.minx == j->minx && r.maxx == j->maxx && r.maxy == j->miny)
-				{ r.maxy = j->maxy; remove = true; }
-			if (r.minx == j->minx && r.maxx == j->maxx && r.miny == j->maxy)
-				{ r.miny = j->miny; remove = true; }
-			if (r.miny == j->miny && r.maxy == j->maxy && r.maxx == j->minx)
-				{ r.maxx = j->maxx; remove = true; }
-			if (r.miny == j->miny && r.maxy == j->maxy && r.minx == j->maxx)
-				{ r.minx = j->minx; remove = true; }
-			if (remove) j = out_rects.erase(j); else ++j;
-		}
-	}
-
-	// split large rects
-	for(std::vector<synfig::RectInt>::iterator j = out_rects.begin(); j != out_rects.end();)
-	{
-		assert(j->valid());
-		if (j->maxx - j->minx > max_size[0])
-		{
-			j = out_rects.insert(j+1, RectInt(j->minx + max_size[0], j->miny, j->maxx, j->maxy));
-			(j-1)->maxx = j->minx;
-			--j;
-		}
-		else
-		if (j->maxy - j->miny > max_size[1])
-		{
-			j = out_rects.insert(j+1, RectInt(j->minx, j->miny + max_size[1], j->maxx, j->maxy));
-			(j-1)->maxy = j->miny;
-			--j;
-		}
-		else
-			++j;
-	}
+	--work_area.dirty_trap_count;
+	if (work_area.dirty_trap_queued) work_area.queue_render();
 }
 
 
@@ -664,53 +136,56 @@ WorkArea::WorkArea(etl::loose_handle<synfigapp::CanvasInterface> canvas_interfac
 	Duckmatic(canvas_interface),
 	canvas_interface(canvas_interface),
 	canvas(canvas_interface->get_canvas()),
+	drawing_area(0),
+	drawing_frame(0),
+	hruler(0),
+	vruler(0),
 	scrollx_adjustment(Gtk::Adjustment::create(0,-4,4,0.01,0.1)),
 	scrolly_adjustment(Gtk::Adjustment::create(0,-4,4,0.01,0.1)),
-	w(TILE_SIZE),
-	h(TILE_SIZE),
+	zoomdial(0),
+	curr_input_device(0),
+	w(1),
+	h(1),
+	thumb_w(1),
+	thumb_h(1),
+	canvaswidth(0.0),
+	canvasheight(0.0),
+	pw(0.001),
+	ph(0.001),
 	last_event_time(0),
 	progresscallback(0),
-	dragging(DRAG_NONE),
+	drag_mode(DRAG_NONE),
 	show_grid(false),
+	show_guides(true),
 	background_size(15,15),
 	background_first_color(0.88, 0.88, 0.88),  /* light gray */
 	background_second_color(0.65, 0.65, 0.65),  /* dark gray */
 	jack_offset(0),
-	tile_w(TILE_SIZE),
-	tile_h(TILE_SIZE),
+	low_resolution(false),
+	meta_data_lock(false),
+	last_focus_point(0,0),
+	low_res_pixel_size(2),
+	dirty_trap_count(0),
+	dirty_trap_queued(0),
+	onion_skin(false),
+	background_rendering(true),
+	allow_duck_clicks(true),
+	allow_bezier_clicks(true),
+	allow_layer_clicks(true),
+	curr_guide_is_x(false),
+	solid_lines(true),
 	timecode_width(0),
 	timecode_height(0),
 	bonesetup_width(0),
 	bonesetup_height(0)
 {
-	show_guides=true;
-	curr_input_device=0;
-	full_frame=false;
-	allow_duck_clicks=true;
-	allow_bezier_clicks=true;
-	allow_layer_clicks=true;
-	render_idle_func_id=0;
-	quality=10;
-	low_res_pixel_size=2;
-	rendering=false;
-	canceled_=false;
-	low_resolution=false;
-	pw=0.001;
-	ph=0.001;
-	last_focus_point=Point(0,0);
-	onion_skin=false;
-	onion_skins[0]=1;
-	onion_skins[1]=0;
-	queued=false;
-	dirty_trap_enabled=false;
-	solid_lines=true;
+	// default onion
+	onion_skins[0] = 1;
+	onion_skins[1] = 0;
 
-	dirty_trap_queued=0;
-
-	meta_data_lock=false;
-
-	insert_renderer(new Renderer_Background, 000);
-	insert_renderer(new Renderer_Canvas,     010);
+	renderer_canvas = new Renderer_Canvas();
+	insert_renderer(new Renderer_Background,   0);
+	insert_renderer(renderer_canvas,          10);
 	insert_renderer(new Renderer_Grid,       100);
 	insert_renderer(new Renderer_Guides,     200);
 	insert_renderer(new Renderer_Ducks,      300);
@@ -726,50 +201,39 @@ WorkArea::WorkArea(etl::loose_handle<synfigapp::CanvasInterface> canvas_interfac
 	signal_grid_changed().connect(sigc::mem_fun(*this,&studio::WorkArea::save_meta_data));
 	signal_sketch_saved().connect(sigc::mem_fun(*this,&studio::WorkArea::save_meta_data));
 
-	// Not that it really makes a difference... (setting this to zero, that is)
-	refreshes=0;
+	add_events(Gdk::KEY_PRESS_MASK);
+
+	// Create drawing frame
 
   	drawing_area=manage(new class Gtk::DrawingArea());
-  	drawing_area->add_events(Gdk::SCROLL_MASK | Gdk::BUTTON3_MOTION_MASK);
+	drawing_area->add_events( Gdk::KEY_PRESS_MASK      | Gdk::KEY_RELEASE_MASK
+							| Gdk::BUTTON_PRESS_MASK   | Gdk::BUTTON_RELEASE_MASK
+		                    | Gdk::BUTTON1_MOTION_MASK | Gdk::BUTTON2_MOTION_MASK | Gdk::BUTTON3_MOTION_MASK
+							| Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK         );
 	drawing_area->show();
-
 	drawing_frame=manage(new Gtk::Frame);
 	drawing_frame->add(*drawing_area);
-	//drawing_frame->set_shadow_type(Gtk::SHADOW_NONE);
-	//drawing_frame->property_border_width()=5;
-	//drawing_frame->modify_fg(Gtk::STATE_NORMAL,Gdk::Color("#00ffff"));
-	//drawing_frame->modify_base(Gtk::STATE_NORMAL,Gdk::Color("#ff00ff"));
-	/*drawing_frame->modify_fg(Gtk::STATE_ACTIVE,Gdk::Color("#00ffff"));
-	drawing_frame->modify_base(Gtk::STATE_ACTIVE,Gdk::Color("#ff00ff"));
-	drawing_frame->modify_bg(Gtk::STATE_ACTIVE,Gdk::Color("#00ff00"));
-	drawing_frame->modify_fg(Gtk::STATE_INSENSITIVE,Gdk::Color("#00ffff"));
-	drawing_frame->modify_base(Gtk::STATE_INSENSITIVE,Gdk::Color("#ff00ff"));
-	drawing_frame->modify_bg(Gtk::STATE_INSENSITIVE,Gdk::Color("#00ff00"));
-	drawing_frame->modify_fg(Gtk::STATE_SELECTED,Gdk::Color("#00ffff"));
-	drawing_frame->modify_base(Gtk::STATE_SELECTED,Gdk::Color("#ff00ff"));
-	drawing_frame->modify_bg(Gtk::STATE_SELECTED,Gdk::Color("#00ff00"));
-	*/
-	//drawing_frame->set_state(Gtk::STATE_NORMAL);
-
 	drawing_frame->show();
-
 	attach(*drawing_frame, 1, 2, 1, 2, Gtk::EXPAND|Gtk::FILL, Gtk::EXPAND|Gtk::FILL, 0, 0);
 
-	Gtk::IconSize iconsize=Gtk::IconSize::from_name("synfig-small_icon");
-
 	// Create the vertical and horizontal rulers
-	vruler = manage(new Widget_Ruler(true));
+
 	hruler = manage(new Widget_Ruler(false));
-	vruler->show();
-	hruler->show();
-	attach(*vruler, 0, 1, 1, 2, Gtk::SHRINK|Gtk::FILL, Gtk::EXPAND|Gtk::FILL, 0, 0);
-	attach(*hruler, 1, 2, 0, 1, Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL, 0, 0);
 	hruler->signal_event().connect(sigc::mem_fun(*this, &WorkArea::on_hruler_event));
+	hruler->add_events( Gdk::BUTTON_PRESS_MASK   | Gdk::BUTTON_RELEASE_MASK
+		              | Gdk::BUTTON1_MOTION_MASK | Gdk::BUTTON2_MOTION_MASK | Gdk::POINTER_MOTION_MASK );
+	hruler->show();
+	attach(*hruler, 1, 2, 0, 1, Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL, 0, 0);
+
+	vruler = manage(new Widget_Ruler(true));
 	vruler->signal_event().connect(sigc::mem_fun(*this, &WorkArea::on_vruler_event));
-	hruler->add_events(Gdk::BUTTON1_MOTION_MASK | Gdk::BUTTON2_MOTION_MASK |Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK|Gdk::POINTER_MOTION_MASK);
-	vruler->add_events(Gdk::BUTTON1_MOTION_MASK | Gdk::BUTTON2_MOTION_MASK |Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK|Gdk::POINTER_MOTION_MASK);
+	vruler->add_events( Gdk::BUTTON_PRESS_MASK   | Gdk::BUTTON_RELEASE_MASK
+		              | Gdk::BUTTON1_MOTION_MASK | Gdk::BUTTON2_MOTION_MASK | Gdk::POINTER_MOTION_MASK );
+	vruler->show();
+	attach(*vruler, 0, 1, 1, 2, Gtk::SHRINK|Gtk::FILL, Gtk::EXPAND|Gtk::FILL, 0, 0);
 
 	// Create the menu button
+
 	Gtk::Arrow *menubutton = manage(new Gtk::Arrow(Gtk::ARROW_RIGHT, Gtk::SHADOW_OUT));
 	menubutton->set_size_request(18, 18);
 	Gtk::EventBox *menubutton_box = manage(new Gtk::EventBox());
@@ -782,43 +246,38 @@ WorkArea::WorkArea(etl::loose_handle<synfigapp::CanvasInterface> canvas_interfac
 	menubutton_box->show_all();
 	attach(*menubutton_box, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 0, 0);
 
-	Gtk::HBox *hbox = manage(new class Gtk::HBox(false, 0));
+	// Create scrollbars
 
 	Gtk::VScrollbar *vscrollbar1 = manage(new class Gtk::VScrollbar(get_scrolly_adjustment()));
-	Gtk::HScrollbar *hscrollbar1 = manage(new class Gtk::HScrollbar(get_scrollx_adjustment()));
 	vscrollbar1->show();
 	attach(*vscrollbar1, 2, 3, 1, 2, Gtk::FILL, Gtk::EXPAND|Gtk::FILL, 0, 0);
 
+	Gtk::HScrollbar *hscrollbar1 = manage(new class Gtk::HScrollbar(get_scrollx_adjustment()));
+	hscrollbar1->show();
+
+	Gtk::IconSize iconsize = Gtk::IconSize::from_name("synfig-small_icon");
 	zoomdial = manage(new class ZoomDial(iconsize));
 	zoomdial->signal_zoom_in().connect(sigc::mem_fun(*this, &studio::WorkArea::zoom_in));
 	zoomdial->signal_zoom_out().connect(sigc::mem_fun(*this, &studio::WorkArea::zoom_out));
 	zoomdial->signal_zoom_fit().connect(sigc::mem_fun(*this, &studio::WorkArea::zoom_fit));
 	zoomdial->signal_zoom_norm().connect(sigc::mem_fun(*this, &studio::WorkArea::zoom_norm));
 	zoomdial->signal_zoom_edit().connect(sigc::mem_fun(*this, &studio::WorkArea::zoom_edit));
-
-	hbox->pack_end(*hscrollbar1, Gtk::PACK_EXPAND_WIDGET,0);
-	hscrollbar1->show();
-	hbox->pack_start(*zoomdial, Gtk::PACK_SHRINK,0);
 	zoomdial->show();
 
-	attach(*hbox, 0, 2, 2, 3, Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL, 0, 0);
+	Gtk::HBox *hbox = manage(new class Gtk::HBox(false, 0));
+	hbox->pack_end(*hscrollbar1, Gtk::PACK_EXPAND_WIDGET,0);
+	hbox->pack_start(*zoomdial, Gtk::PACK_SHRINK,0);
 	hbox->show();
+	attach(*hbox, 0, 2, 2, 3, Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL, 0, 0);
 
-	add_events(Gdk::KEY_PRESS_MASK);
-	drawing_area->add_events(Gdk::KEY_PRESS_MASK | Gdk::KEY_RELEASE_MASK);
-	drawing_area->add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK);
-	drawing_area->add_events(Gdk::BUTTON1_MOTION_MASK | Gdk::BUTTON2_MOTION_MASK | Gdk::BUTTON3_MOTION_MASK | Gdk::POINTER_MOTION_MASK);
-	drawing_area->add_events(Gdk::SCROLL_MASK);
-
-	// ----------------- Attach signals
+	// Attach signals
 
 	drawing_area->signal_draw().connect(sigc::mem_fun(*this, &WorkArea::refresh));
 	drawing_area->signal_event().connect(sigc::mem_fun(*this, &WorkArea::on_drawing_area_event));
 	drawing_area->signal_size_allocate().connect(sigc::hide(sigc::mem_fun(*this, &WorkArea::refresh_dimension_info)));
 
-
-
 	canvas_interface->signal_rend_desc_changed().connect(sigc::mem_fun(*this, &WorkArea::refresh_dimension_info));
+	canvas_interface->signal_time_changed().connect(sigc::mem_fun(*this, &WorkArea::queue_draw));
 	// When either of the scrolling adjustments change, then redraw.
 	get_scrollx_adjustment()->signal_value_changed().connect(sigc::mem_fun(*this, &WorkArea::queue_scroll));
 	get_scrolly_adjustment()->signal_value_changed().connect(sigc::mem_fun(*this, &WorkArea::queue_scroll));
@@ -843,54 +302,47 @@ WorkArea::WorkArea(etl::loose_handle<synfigapp::CanvasInterface> canvas_interfac
 	get_canvas()->signal_meta_data_changed("background_first_color").connect(sigc::mem_fun(*this,&WorkArea::load_meta_data));
 	get_canvas()->signal_meta_data_changed("background_second_color").connect(sigc::mem_fun(*this,&WorkArea::load_meta_data));
 
-	queued=false;
-	meta_data_lock=false;
+
 	set_focus_point(Point(0,0));
 
 	// If no meta data in canvas, assume it's new file and save default
 	if (!have_meta_data())
 		save_meta_data();
-
 	load_meta_data();
+
 	// Load sketch
 	{
 		String data(canvas->get_meta_data("sketch"));
-		if(!data.empty())
-		{
-			if(!load_sketch(data))
-				load_sketch(dirname(canvas->get_file_name())+ETL_DIRECTORY_SEPARATOR+basename(data));
-		}
+		if (!data.empty())
+			if (!load_sketch(data))
+				load_sketch(dirname(canvas->get_file_name()) + ETL_DIRECTORY_SEPARATOR + basename(data));
 	}
 
 	drawing_area->set_can_focus(true);
+	refresh_dimension_info();
+	queue_draw();
 }
 
 WorkArea::~WorkArea()
 {
-//	delete [] buffer;
-
-	// don't leave the render function queued if we are about to vanish;
-	// that causes crashes
-	if(render_idle_func_id)
-		render_idle_func_id=0;
+	set_drag_mode(DRAG_NONE);
+	while(!renderer_set_.empty())
+		erase_renderer(*renderer_set_.begin());
 }
 
-#ifdef SINGLE_THREADED
-bool
-WorkArea::get_updating()const
-{
-	return App::single_threaded && async_renderer && async_renderer->updating;
-}
-#endif
-
-#ifdef SINGLE_THREADED
 void
-WorkArea::stop_updating(bool cancel)
+WorkArea::set_drag_mode(DragMode mode)
 {
-	async_renderer->stop();
-	if (cancel) canceled_=true;
+	if (drag_mode == mode) return;
+
+	drag_mode = mode;
+
+	if (lock_ducks && drag_mode == DRAG_NONE)
+		lock_ducks.reset();
+	else
+	if (!lock_ducks && drag_mode != DRAG_NONE)
+		lock_ducks = new LockDucks(get_canvas_view());
 }
-#endif
 
 void
 WorkArea::save_meta_data()
@@ -906,22 +358,23 @@ WorkArea::save_meta_data()
 	Color c(get_grid_color());
 	canvas_interface->set_meta_data("grid_color",strprintf("%f %f %f",c.get_r(),c.get_g(),c.get_b()));
 	c = get_guides_color();
-	canvas_interface->set_meta_data("guide_color",strprintf("%f %f %f",c.get_r(),c.get_g(),c.get_b()));
-	canvas_interface->set_meta_data("grid_snap",get_grid_snap()?"1":"0");
-	canvas_interface->set_meta_data("guide_snap",get_guide_snap()?"1":"0");
-	canvas_interface->set_meta_data("guide_show",get_show_guides()?"1":"0");
-	canvas_interface->set_meta_data("grid_show",show_grid?"1":"0");
-	canvas_interface->set_meta_data("jack_offset",strprintf("%f", (double)jack_offset));
-	canvas_interface->set_meta_data("onion_skin",onion_skin?"1":"0");
+	canvas_interface->set_meta_data("guide_color", strprintf("%f %f %f", c.get_r(), c.get_g(), c.get_b()));
+	canvas_interface->set_meta_data("grid_snap", get_grid_snap() ? "1" : "0");
+	canvas_interface->set_meta_data("guide_snap", get_guide_snap() ? "1" : "0");
+	canvas_interface->set_meta_data("guide_show", get_show_guides() ? "1" : "0");
+	canvas_interface->set_meta_data("grid_show", show_grid ? "1" : "0");
+	canvas_interface->set_meta_data("jack_offset", strprintf("%f", (double)jack_offset));
+	canvas_interface->set_meta_data("onion_skin", onion_skin ? "1" : "0");
 	canvas_interface->set_meta_data("onion_skin_past", strprintf("%d", onion_skins[0]));
 	canvas_interface->set_meta_data("onion_skin_future", strprintf("%d", onion_skins[1]));
+	canvas_interface->set_meta_data("background_rendering", background_rendering ? "1" : "0");
 
 	s = get_background_size();
-	canvas_interface->set_meta_data("background_size",strprintf("%f %f",s[0],s[1]));
+	canvas_interface->set_meta_data("background_size", strprintf("%f %f", s[0], s[1]));
 	c = get_background_first_color();
-	canvas_interface->set_meta_data("background_first_color",strprintf("%f %f %f",c.get_r(),c.get_g(),c.get_b()));
+	canvas_interface->set_meta_data("background_first_color", strprintf("%f %f %f", c.get_r(), c.get_g(), c.get_b()));
 	c = get_background_second_color();
-	canvas_interface->set_meta_data("background_second_color",strprintf("%f %f %f",c.get_r(),c.get_g(),c.get_b()));
+	canvas_interface->set_meta_data("background_second_color", strprintf("%f %f %f", c.get_r(), c.get_g(), c.get_b()));
 
 	{
 		String data;
@@ -1115,7 +568,7 @@ WorkArea::load_meta_data()
 	if(data.size() && (data=="0" || data[0]=='f' || data[0]=='F'))
 		set_onion_skin(false);
 
-	bool queue_render = false;
+	bool render_required = false;
 	data=canvas->get_meta_data("onion_skin_past");
 	if(data.size())
 	{
@@ -1126,7 +579,7 @@ WorkArea::load_meta_data()
 		if (past_kf != onion_skins[0])
 		{
 			onion_skins[0] = past_kf;
-			queue_render = true;
+			render_required = true;
 		}
 	}
 	data=canvas->get_meta_data("onion_skin_future");
@@ -1139,11 +592,17 @@ WorkArea::load_meta_data()
 		if (future_kf != onion_skins[1])
 		{
 			onion_skins[1] = future_kf;
-			queue_render = true;
+			render_required = true;
 		}
 	}
 	// Update the canvas
-	if(onion_skin && queue_render)	queue_render_preview();
+	if (onion_skin && render_required) queue_render();
+
+	data=canvas->get_meta_data("background_rendering");
+	if(data.size() && (data=="1" || data[0]=='t' || data[0]=='T'))
+		set_background_rendering(true);
+	if(data.size() && (data=="0" || data[0]=='f' || data[0]=='F'))
+		set_background_rendering(false);
 
 	data=canvas->get_meta_data("guide_x");
 	get_guide_list_x().clear();
@@ -1284,32 +743,30 @@ WorkArea::load_meta_data()
 void
 WorkArea::set_onion_skin(bool x)
 {
-	if(onion_skin==x)
+	if (onion_skin == x)
 		return;
-	onion_skin=x;
+	onion_skin = x;
 	save_meta_data();
-	queue_render_preview();
-}
-
-bool
-WorkArea::get_onion_skin()const
-{
-	return onion_skin;
+	queue_draw();
 }
 
 void WorkArea::set_onion_skins(int *onions)
 {
-	onion_skins[0]=onions[0];
-	onion_skins[1]=onions[1];
-	if(onion_skin)
-		queue_render_preview();
+	onion_skins[0] = onions[0];
+	onion_skins[1] = onions[1];
+	if (onion_skin)
+		queue_draw();
 	save_meta_data();
 }
 
-int const *
-WorkArea::get_onion_skins()const
+void
+WorkArea::set_background_rendering(bool x)
 {
-	return onion_skins;
+	if (background_rendering == x)
+		return;
+	background_rendering = x;
+	save_meta_data();
+	queue_draw();
 }
 
 void
@@ -1327,8 +784,6 @@ WorkArea::disable_grid()
 	save_meta_data();
 	queue_draw();
 }
-
-
 
 void
 WorkArea::toggle_grid()
@@ -1380,10 +835,9 @@ WorkArea::set_jack_offset(const synfig::Time &x) {
 void
 WorkArea::set_low_resolution_flag(bool x)
 {
-	if(x!=low_resolution)
-	{
+	if(x != low_resolution) {
 		low_resolution=x;
-		queue_render_preview();
+		queue_render();
 	}
 }
 
@@ -1418,45 +872,59 @@ WorkArea::set_grid_color(const synfig::Color &c)
 void
 WorkArea::set_background_size(const synfig::Vector &s)
 {
-	if (background_size != s)
-	{
-	   background_size = s;
-       save_meta_data();
-	}
+	if (background_size == s) return;
+	background_size = s;
+	background_pattern.clear();
+	save_meta_data();
 	queue_draw();
 }
 
 void
 WorkArea::set_background_first_color(const synfig::Color &c)
 {
-	if(background_first_color != c)
-	{
-		background_first_color = c;
-		save_meta_data();
-	}
+	if (background_first_color == c) return;
+	background_first_color = c;
+	background_pattern.clear();
+	save_meta_data();
 	queue_draw();
 }
 
 void
 WorkArea::set_background_second_color(const synfig::Color &c)
 {
-	if(background_second_color != c)
-	{
-		background_second_color = c;
-		save_meta_data();
-	}
+	if (background_second_color == c) return;
+	background_second_color = c;
+	background_pattern.clear();
+	save_meta_data();
 	queue_draw();
+}
+
+const Cairo::RefPtr<Cairo::SurfacePattern>&
+WorkArea::get_background_pattern() const
+{
+	if (!background_pattern) {
+		int w = std::max(1, std::min(1000, (int)round(background_size[0])));
+		int h = std::max(1, std::min(1000, (int)round(background_size[1])));
+	    Cairo::RefPtr<Cairo::ImageSurface> surface = Cairo::ImageSurface::create(Cairo::FORMAT_RGB24, w*2, h*2);
+	    Cairo::RefPtr<Cairo::Context> context = Cairo::Context::create(surface);
+	    context->set_source_rgb(background_first_color.get_r(), background_first_color.get_g(), background_first_color.get_b());
+	    context->paint();
+	    context->set_source_rgb(background_second_color.get_r(), background_second_color.get_g(), background_second_color.get_b());
+	    context->rectangle(w, 0, w, h);
+	    context->rectangle(0, h, w, h);
+	    context->fill();
+	    surface->flush();
+
+	    background_pattern = Cairo::SurfacePattern::create(surface);
+	    background_pattern->set_filter(Cairo::FILTER_NEAREST);
+	    background_pattern->set_extend(Cairo::EXTEND_REPEAT);
+	}
+	return background_pattern;
 }
 
 void
 WorkArea::set_focus_point(const synfig::Point &point)
 {
-	// These next three lines try to ensure that we place the
-	// focus on a pixel boundary
-	/*Point adjusted(point[0]/abs(get_pw()),point[1]/abs(get_ph()));
-	adjusted[0]=(abs(adjusted[0]-floor(adjusted[0]))<0.5)?floor(adjusted[0])*abs(get_pw()):ceil(adjusted[0])*abs(get_ph());
-	adjusted[1]=(abs(adjusted[1]-floor(adjusted[1]))<0.5)?floor(adjusted[1])*abs(get_ph()):ceil(adjusted[1])*abs(get_ph());
-	*/
 	const synfig::Point& adjusted(point);
 
 	synfig::RendDesc &rend_desc(get_canvas()->rend_desc());
@@ -1473,35 +941,7 @@ WorkArea::get_focus_point()const
 	synfig::RendDesc &rend_desc(get_canvas()->rend_desc());
 	Real x_factor=(rend_desc.get_br()[0]-rend_desc.get_tl()[0]>0)?-1:1;
 	Real y_factor=(rend_desc.get_br()[1]-rend_desc.get_tl()[1]>0)?-1:1;
-
 	return synfig::Point(get_scrollx_adjustment()->get_value()*x_factor, get_scrolly_adjustment()->get_value()*y_factor);
-}
-
-bool
-WorkArea::set_wh(int W, int H,int CHAN)
-{
-	// If our size is already set, don't set it again
-	if(W==w && H==h && CHAN==bpp)
-	{
-		return true;
-	}
-	if(W<=0 || H<=0 || CHAN<=0)
-		return false;
-
-	assert(W>0);
-	assert(H>0);
-	assert(CHAN>0);
-
-	// Set all of the parameters
-	w=W;
-	h=H;
-	bpp=CHAN;
-
-	refresh_dimension_info();
-
-	tile_book.clear();
-
-	return true;
 }
 
 bool
@@ -1546,15 +986,11 @@ WorkArea::on_key_press_event(GdkEventKey* event)
 	bool guide_snap_holder(get_guide_snap());
 	set_grid_snap(false);
 
-	try {
+	{
+		LockDucks lock(get_canvas_view());
 		start_duck_drag(get_selected_duck()->get_trans_point());
 		translate_selected_ducks(get_selected_duck()->get_trans_point()+nudge*multiplier);
 		end_duck_drag();
-	}
-	catch(String)
-	{
-		canvas_view->duck_refresh_flag=true;
-		canvas_view->queue_rebuild_ducks();
 	}
 
 	set_grid_snap(grid_snap_holder);
@@ -1574,7 +1010,7 @@ bool
 WorkArea::on_drawing_area_event(GdkEvent *event)
 {
 	synfig::Point mouse_pos;
-    float bezier_click_pos;
+    float bezier_click_pos(0);
 	const float radius((abs(pw)+abs(ph))*4);
 	int button_pressed(0);
 	float pressure(0);
@@ -1586,27 +1022,17 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 		GdkDevice *device = event->motion.device;
 		modifier = Gdk::ModifierType(event->motion.state);
 
-		// Make sure we recognize the device
-		if(curr_input_device)
-		{
-			if(curr_input_device!=device)
-			{
-				assert(device);
-				curr_input_device=device;
-				signal_input_device_changed()(curr_input_device);
-			}
-		}
-		else
-		if(device)
-		{
-			curr_input_device=device;
-			signal_input_device_changed()(curr_input_device);
-		}
-
-		assert(curr_input_device);
-
 		// Calculate the position of the
 		// input device in canvas coordinates
+
+		/*std::string axes_str;
+		int n_axes = gdk_device_get_n_axes(device);
+		for (int i=0; i < n_axes; i++)
+		{
+			axes_str += etl::strprintf(" %f", event->motion.axes[i]);
+		}
+		synfig::warning("axes info: %s", axes_str.c_str());*/
+		//for(...) axesstr += etl::strprintf(" %f", event->motion.axes[i])
 
 		double x = 0.0, y = 0.0, p = 0.0;
 		int ox = 0, oy = 0;
@@ -1619,6 +1045,30 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 			x -= ox; else x = event->motion.x;
 		if (gdk_device_get_axis(device, event->motion.axes, GDK_AXIS_Y, &y))
 			y -= oy; else y = event->motion.y;
+
+		// Make sure we recognize the device
+		if(curr_input_device)
+		{
+			if(curr_input_device!=device)
+			{
+				assert(device);
+				curr_input_device=device;
+				//synfig::error("device changed: %s", gdk_device_get_name(device));
+				signal_input_device_changed()(curr_input_device);
+			}
+		}
+		else
+		if(device)
+		{
+			curr_input_device=device;
+			//synfig::error("device set: %s", gdk_device_get_name(device));
+			signal_input_device_changed()(curr_input_device);
+		}
+
+		assert(curr_input_device);
+
+
+		//synfig::warning("coord (%3.f, %3.f) \t motion (%3.f, %3.f) / %s / axes(%d)", x, y, event->motion.x, event->motion.y, gdk_device_get_name(device), gdk_device_get_n_axes(device));
 		if (gdk_device_get_axis(device, event->motion.axes, GDK_AXIS_PRESSURE, &p))
 			p = std::max(0.0, (p - 0.04)/(1.0 - 0.04)); else p = 1.0;
 
@@ -1638,6 +1088,26 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 		modifier = Gdk::ModifierType(event->button.state);
 		drawing_area->grab_focus();
 
+		// Calculate the position of the
+		// input device in canvas coordinates
+		// and the buttons
+
+		double x = 0.0, y = 0.0, p = 0.0;
+		int ox = 0, oy = 0;
+		#ifndef _WIN32
+		Gtk::Container *toplevel = drawing_frame->get_toplevel();
+		if (toplevel) drawing_frame->translate_coordinates(*toplevel, 0, 0, ox, oy);
+		#endif
+
+		if (gdk_device_get_axis(device, event->button.axes, GDK_AXIS_X, &x))
+			x -= ox; else x = event->button.x;
+		if (gdk_device_get_axis(device, event->button.axes, GDK_AXIS_Y, &y))
+			y -= oy; else y = event->button.y;
+		
+		//synfig::warning("coord2 (%3.f, %3.f) \t motion (%3.f, %3.f) / %s / axes(%d)", x, y, event->button.x, event->button.y, gdk_device_get_name(device), gdk_device_get_n_axes(device));
+		if (gdk_device_get_axis(device, event->button.axes, GDK_AXIS_PRESSURE, &p))
+			p = std::max(0.0, (p - 0.04)/(1.0 - 0.04)); else p = 1.0;
+
 		// Make sure we recognize the device
 		if(curr_input_device)
 		{
@@ -1656,24 +1126,7 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 		}
 
 		assert(curr_input_device);
-
-		// Calculate the position of the
-		// input device in canvas coordinates
-		// and the buttons
-
-		double x = 0.0, y = 0.0, p = 0.0;
-		int ox = 0, oy = 0;
-		#ifndef _WIN32
-		Gtk::Container *toplevel = drawing_frame->get_toplevel();
-		if (toplevel) drawing_frame->translate_coordinates(*toplevel, 0, 0, ox, oy);
-		#endif
-
-		if (gdk_device_get_axis(device, event->motion.axes, GDK_AXIS_X, &x))
-			x -= ox; else x = event->motion.x;
-		if (gdk_device_get_axis(device, event->motion.axes, GDK_AXIS_Y, &y))
-			y -= oy; else y = event->motion.y;
-		if (gdk_device_get_axis(device, event->motion.axes, GDK_AXIS_PRESSURE, &p))
-			p = std::max(0.0, (p - 0.04)/(1.0 - 0.04)); else p = 1.0;
+			
 
 		if(std::isnan(x) || std::isnan(y) || std::isnan(p))
 			return false;
@@ -1712,31 +1165,24 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 	}
 
 	// Event hasn't been handled, pass it down
-	switch(event->type)
-    {
-	case GDK_BUTTON_PRESS:
-		{
-		switch(button_pressed)
-		{
-		case 1:	// Attempt to click on a duck
-		{
+	switch(event->type) {
+	case GDK_BUTTON_PRESS: {
+		switch(button_pressed) {
+		case 1:	{ // Attempt to click on a duck
 			etl::handle<Duck> duck;
-			dragging=DRAG_NONE;
+			set_drag_mode(DRAG_NONE);
 
-			if(allow_duck_clicks)
-			{
+			if(allow_duck_clicks) {
 				duck=find_duck(mouse_pos,radius);
 
 				//!TODO Remove HARDCODE Ui Specification, make it config ready
 
 				// Single click duck selection on WorkArea [Part I] (Part II lower in code)
-				if(duck)
-				{
+				if (duck) {
 					// make a note of whether the duck we click on was selected or not
-					if(duck_is_selected(duck))
+					if(duck_is_selected(duck)) {
 						clicked_duck=duck;
-					else
-					{
+					} else {
 						clicked_duck=0;
 						// if CTRL or SHIFT isn't pressed, clicking an unselected duck will unselect all other ducks
 						if(!(modifier&(GDK_CONTROL_MASK|GDK_SHIFT_MASK)))
@@ -1749,16 +1195,11 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 			//	clear_selected_ducks();
 
 			if(allow_bezier_clicks)
-			{
 				selected_bezier=find_bezier(mouse_pos,radius,&bezier_click_pos);
-			}
 			else
-			{
 				selected_bezier=0;
-			}
 
-			if(duck)
-			{
+			if (duck) {
 				if (!duck->get_editable(get_alternative_mode()))
 					return true;
 
@@ -1766,18 +1207,15 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 				//if(clicked_duck)clicked_duck->signal_user_click(0)();
 
 				// if the user is holding shift while clicking on a tangent duck, consider splitting the tangent
-				if ((event->button.state&GDK_SHIFT_MASK) && duck->get_type() == Duck::TYPE_TANGENT)
-				{
+				if ((event->button.state&GDK_SHIFT_MASK) && duck->get_type() == Duck::TYPE_TANGENT) {
 					synfigapp::ValueDesc value_desc = duck->get_value_desc();
 
 					// we have the tangent, but need the vertex - that's the parent
 					if (value_desc.is_value_node()) {
-						if (ValueNode_Composite::Handle value_node = ValueNode_Composite::Handle::cast_dynamic(value_desc.get_value_node()))
-						{
+						if (ValueNode_Composite::Handle value_node = ValueNode_Composite::Handle::cast_dynamic(value_desc.get_value_node())) {
 							BLinePoint bp((*value_node)(get_time()).get(BLinePoint()));
 							// if the tangent isn't split, then split it
-							if (!bp.get_split_tangent_both())
-							{
+							if (!bp.get_split_tangent_both()) {
 								if (get_canvas_view()->canvas_interface()->change_value(synfigapp::ValueDesc(
 										value_node,
 										value_node->get_link_index_from_name("split_radius")),
@@ -1785,8 +1223,7 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 								 && get_canvas_view()->canvas_interface()->change_value(synfigapp::ValueDesc(
 										value_node,
 										value_node->get_link_index_from_name("split_angle")),
-										true )
-								)
+										true ) )
 								{
 									// rebuild the ducks from scratch, so the tangents ducks aren't connected
 									get_canvas_view()->rebuild_ducks();
@@ -1794,12 +1231,9 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 									// reprocess the mouse click
 									return on_drawing_area_event(event);
 								}
-								else
-									return true;
+								return true;
 							}
-						} else {
-							synfig::info("parent isn't composite value node?");
-						}
+						} else synfig::info("parent isn't composite value node?");
 					} else {
 						// I don't know how to access the vertex from the tangent duck when originally drawing the bline in the bline tool
 						// synfig::ValueNode::Handle vn = value_desc.get_value_node();
@@ -1807,127 +1241,112 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 					}
 				}
 
-				dragging=DRAG_DUCK;
+				set_drag_mode(DRAG_DUCK);
 				drag_point=mouse_pos;
 				//drawing_area->queue_draw();
 				start_duck_drag(mouse_pos);
 				get_canvas_view()->reset_cancel_status();
 				return true;
-			}
-			else
-			if(canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_LEFT,mouse_pos,pressure,modifier))==Smach::RESULT_OK)
-			{
-				if (selected_bezier)
-				{
+			} else
+			if (canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_LEFT,mouse_pos,pressure,modifier))==Smach::RESULT_OK) {
+				if (selected_bezier) {
 					synfig::Point distance_1 = selected_bezier->p1->get_trans_point() - mouse_pos;
 					synfig::Point distance_2 = selected_bezier->p2->get_trans_point() - mouse_pos;
-					if( distance_1.mag() > radius*2
-					    && distance_2.mag() > radius*2
-						)
-					// If we click a selected bezier
-					// not too close to the endpoints
+					if ( distance_1.mag() > radius*2
+					  && distance_2.mag() > radius*2 )
 					{
+						// If we click a selected bezier
+						// not too close to the endpoints
 						// We give the states first priority to process the
 						// event so as not to interfere with the bline tool
-						dragging=DRAG_BEZIER;
+						set_drag_mode(DRAG_BEZIER);
 						drag_point=mouse_pos;
 						start_bezier_drag(mouse_pos, bezier_click_pos);
 						return true;
 					}
 				}
-// I commented out this section because
-// it was causing issues when rotoscoping.
-// At the moment, we don't need it, so
-// this was the easiest way to fix the problem.
-/*
-				else
-				if(selected_bezier)
-				{
-					selected_duck=0;
-					selected_bezier->signal_user_click(0)(bezier_click_pos);
-				}
-*/
+				// I commented out this section because
+				// it was causing issues when rotoscoping.
+				// At the moment, we don't need it, so
+				// this was the easiest way to fix the problem.
+				//else
+				//if(selected_bezier)
+				//{
+				//	selected_duck=0;
+				//	selected_bezier->signal_user_click(0)(bezier_click_pos);
+				//}
 
 				// Check for a guide click
-				if (show_guides)
-				{
-					GuideList::iterator iter;
-
-					iter=find_guide_x(mouse_pos,radius);
-					if(iter==get_guide_list_x().end())
-					{
-						curr_guide_is_x=false;
-						iter=find_guide_y(mouse_pos,radius);
+				if (show_guides) {
+					GuideList::iterator iter = find_guide_x(mouse_pos,radius);
+					if (iter == get_guide_list_x().end()) {
+						curr_guide_is_x = false;
+						iter = find_guide_y(mouse_pos,radius);
+					} else {
+						curr_guide_is_x = true;
 					}
-					else
-						curr_guide_is_x=true;
-					if(iter!=get_guide_list_x().end() && iter!=get_guide_list_y().end())
-					{
-						dragging=DRAG_GUIDE;
-						curr_guide=iter;
+
+					if (iter != get_guide_list_x().end() && iter != get_guide_list_y().end()) {
+						set_drag_mode(DRAG_GUIDE);
+						curr_guide = iter;
 						return true;
 					}
 				}
+
 				// All else fails, try making a selection box
-				dragging=DRAG_BOX;
-				curr_point=drag_point=mouse_pos;
+				set_drag_mode(DRAG_BOX);
+				curr_point = drag_point = mouse_pos;
 				return true;
 			}
 			selected_bezier=0;
 			break;
 		}
-		case 2:	// Attempt to drag and move the window
-		{
-			etl::handle<Duck> duck=find_duck(mouse_pos,radius);
-			etl::handle<Bezier> bezier=find_bezier(mouse_pos,radius,&bezier_click_pos);
-			if(duck)
+		case 2:	{ // Attempt to drag and move the window
+			etl::handle<Duck> duck = find_duck(mouse_pos, radius);
+			etl::handle<Bezier> bezier = find_bezier(mouse_pos, radius, &bezier_click_pos);
+			if (duck)
 				duck->signal_user_click(1)();
 			else
 			if(bezier)
 				bezier->signal_user_click(1)(bezier_click_pos);
 
-			if(canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_MIDDLE,mouse_pos,pressure,modifier))==Smach::RESULT_OK)
-
-			dragging=DRAG_WINDOW;
-			drag_point=mouse_pos;
-			signal_user_click(1)(mouse_pos);
-
+			if (canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_MIDDLE,mouse_pos,pressure,modifier))==Smach::RESULT_OK) {
+				set_drag_mode(
+					(modifier & GDK_CONTROL_MASK) ? DRAG_ZOOM_WINDOW
+				  : (modifier & GDK_SHIFT_MASK)   ? DRAG_ROTATE_WINDOW
+				  : DRAG_WINDOW );
+				drag_point = (modifier & GDK_CONTROL_MASK) ? synfig::Point(event->motion.x, event->motion.y) :
+							mouse_pos;
+				signal_user_click(1)(mouse_pos);
+			}
 			break;
 		}
-		case 3:	// Attempt to either get info on a duck, or open the menu
-		{
-			etl::handle<Duck> duck=find_duck(mouse_pos,radius);
-			etl::handle<Bezier> bezier=find_bezier(mouse_pos,radius,&bezier_click_pos);
-
-			Layer::Handle layer(get_canvas()->find_layer(get_canvas_view()->get_context_params(),mouse_pos));
-			if(duck)
-			{
-				if(get_selected_ducks().size()<=1)
+		case 3:	{ // Attempt to either get info on a duck, or open the menu
+			if (etl::handle<Duck> duck = find_duck(mouse_pos, radius)) {
+				if (get_selected_ducks().size() <= 1)
 					duck->signal_user_click(2)();
 				else
 					canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MULTIPLE_DUCKS_CLICKED,BUTTON_RIGHT,mouse_pos,pressure,modifier,duck));
 				return true;
 			}
-			else if(bezier)
-			{
+
+			if (etl::handle<Bezier> bezier = find_bezier(mouse_pos, radius, &bezier_click_pos)) {
 				bezier->signal_user_click(2)(bezier_click_pos);
 				return true;
 			}
-			else if (layer)
-			{
-				if(canvas_view->get_smach().process_event(EventLayerClick(layer,BUTTON_RIGHT,mouse_pos))==Smach::RESULT_OK)
+
+			if (Layer::Handle layer = get_canvas()->find_layer(get_canvas_view()->get_context_params(), mouse_pos)) {
+				if (canvas_view->get_smach().process_event(EventLayerClick(layer, BUTTON_RIGHT, mouse_pos)) == Smach::RESULT_OK)
 					return false;
 				return true;
 			}
-			else
-				canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_RIGHT,mouse_pos,pressure,modifier));
-			/*
-			if(canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_RIGHT,mouse_pos,pressure,modifier))==Smach::RESULT_OK)
-			{
-				//popup_menu();
-				return true;
-			}
-			*/
+
+			canvas_view->get_smach().process_event(EventMouse(
+				EVENT_WORKAREA_MOUSE_BUTTON_DOWN, BUTTON_RIGHT, mouse_pos, pressure, modifier ));
+			//if(canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_RIGHT,mouse_pos,pressure,modifier))==Smach::RESULT_OK) {
+			//	//popup_menu();
+			//	return true;
+			//}
 			break;
 		}
 		case 4:
@@ -1939,255 +1358,182 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 		default:
 			break;
 		}
-		}
 		break;
-	case GDK_MOTION_NOTIFY:
-		curr_point=mouse_pos;
-
-		if(event->motion.time-last_event_time<25)
+	}
+	case GDK_MOTION_NOTIFY: {
+		if (event->motion.time - last_event_time < 25)
 			return true;
-		else
-			last_event_time=event->motion.time;
+		last_event_time = event->motion.time;
+		curr_point = mouse_pos;
 
 		signal_cursor_moved_();
 
 		// Guide/Duck highlights on hover
-		switch(dragging)
-		{
-		case DRAG_NONE:
-		   {
-            GuideList::iterator iter;
+		switch(get_drag_mode()) {
+		case DRAG_NONE: {
+            GuideList::iterator iter = find_guide_x(mouse_pos,radius);
+            if (iter == get_guide_list_x().end())
+                iter = find_guide_y(mouse_pos, radius);
 
-            iter=find_guide_x(mouse_pos,radius);
-            if(iter==get_guide_list_x().end())
-                iter=find_guide_y(mouse_pos,radius);
-
-            if(iter!=curr_guide)
-            {
-                curr_guide=iter;
+            if (iter != curr_guide) {
+                curr_guide = iter;
                 drawing_area->queue_draw();
             }
 
-            etl::handle<Duck> duck;
-            duck=find_duck(mouse_pos,radius);
-            if(duck!=hover_duck)
-            {
-                hover_duck=duck;
+            etl::handle<Duck> duck = find_duck(mouse_pos, radius);
+            if (duck != hover_duck) {
+                hover_duck = duck;
                 drawing_area->queue_draw();
             }
-		   }
-		break;
-
-		case DRAG_DUCK :
-		{
-			if(canvas_view->get_cancel_status())
-			{
-				dragging=DRAG_NONE;
+    		break;
+		}
+		case DRAG_DUCK: {
+			if (canvas_view->get_cancel_status()) {
+				set_drag_mode(DRAG_NONE);
 				canvas_view->queue_rebuild_ducks();
 				return true;
 			}
-			/*
-			Point point((mouse_pos-selected_duck->get_origin())/selected_duck->get_scalar());
-			if(get_grid_snap())
-			{
-				point[0]=floor(point[0]/grid_size[0]+0.5)*grid_size[0];
-				point[1]=floor(point[1]/grid_size[1]+0.5)*grid_size[1];
-			}
-			selected_duck->set_point(point);
-			*/
 
-			//Point p(mouse_pos);
+			//Point point((mouse_pos-selected_duck->get_origin())/selected_duck->get_scalar());
+			//if(get_grid_snap()) {
+			//	point[0]=floor(point[0]/grid_size[0]+0.5)*grid_size[0];
+			//	point[1]=floor(point[1]/grid_size[1]+0.5)*grid_size[1];
+			//}
+			//selected_duck->set_point(point);
 
-			set_axis_lock(event->motion.state&GDK_SHIFT_MASK);
-
+			set_axis_lock(event->motion.state & GDK_SHIFT_MASK);
 			translate_selected_ducks(mouse_pos);
-
 			drawing_area->queue_draw();
+			break;
 		}
-		break;
-
-		case DRAG_BEZIER :
-		{
-			if(canvas_view->get_cancel_status())
-			{
-				dragging=DRAG_NONE;
+		case DRAG_BEZIER: {
+			if (canvas_view->get_cancel_status()) {
+				set_drag_mode(DRAG_NONE);
 				canvas_view->queue_rebuild_ducks();
 				return true;
 			}
-
 			translate_selected_bezier(mouse_pos);
-
 			drawing_area->queue_draw();
+	        break;
 		}
-        break;
-
-		case DRAG_BOX:
-		{
+		case DRAG_BOX: {
 			curr_point=mouse_pos;
 			drawing_area->queue_draw();
+	        break;
 		}
-        break;
-
-		case DRAG_GUIDE :
-		{
+		case DRAG_GUIDE: {
 			if(curr_guide_is_x)
-				*curr_guide=mouse_pos[0];
+				*curr_guide = mouse_pos[0];
 			else
-				*curr_guide=mouse_pos[1];
+				*curr_guide = mouse_pos[1];
 			drawing_area->queue_draw();
+	        break;
 		}
-        break;
-		default:
-		{
+		default: break;
+		} // end switch dragging
 
-		}
-		}//end switch dragging
-
-		if(dragging!=DRAG_WINDOW)
-		{	// Update those triangle things on the rulers
+		if (get_drag_mode() != DRAG_WINDOW) {
+			// Update those triangle things on the rulers
 			const synfig::Point point(mouse_pos);
-			hruler->set_position( Distance(point[0],Distance::SYSTEM_UNITS).get(App::distance_system,get_canvas()->rend_desc()) );
-			vruler->set_position( Distance(point[1],Distance::SYSTEM_UNITS).get(App::distance_system,get_canvas()->rend_desc()) );
+			hruler->set_position( Distance(point[0], Distance::SYSTEM_UNITS).get(App::distance_system, get_canvas()->rend_desc()) );
+			vruler->set_position( Distance(point[1], Distance::SYSTEM_UNITS).get(App::distance_system, get_canvas()->rend_desc()) );
 		}
 
-		if(dragging == DRAG_WINDOW)
+		if (get_drag_mode() == DRAG_WINDOW) {
 			set_focus_point(get_focus_point() + mouse_pos-drag_point);
-		else if ((event->motion.state & GDK_BUTTON1_MASK) &&
-				canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DRAG, BUTTON_LEFT,
-																  mouse_pos,pressure,modifier)) == Smach::RESULT_ACCEPT)
-			return true;
-		else if ((event->motion.state & GDK_BUTTON2_MASK) &&
-				 canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DRAG, BUTTON_MIDDLE,
-																   mouse_pos, pressure, modifier)) == Smach::RESULT_ACCEPT)
-			return true;
-		else if ((event->motion.state & GDK_BUTTON3_MASK) &&
-				 canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DRAG, BUTTON_RIGHT,
-																   mouse_pos, pressure, modifier)) == Smach::RESULT_ACCEPT)
-			return true;
-		else if(canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_MOTION, BUTTON_NONE,
-																  mouse_pos, pressure,modifier)) == Smach::RESULT_ACCEPT)
-			return true;
+    	} else
+		if (get_drag_mode() == DRAG_ZOOM_WINDOW) {
+			set_zoom(get_zoom() * (1.0 + (drag_point[1] - event->motion.y) / 100.0));
+			drag_point = synfig::Point(event->motion.x, event->motion.y);
+		} else {
+			MouseButton button = event->motion.state & GDK_BUTTON1_MASK ? BUTTON_LEFT
+					           : event->motion.state & GDK_BUTTON2_MASK ? BUTTON_MIDDLE
+					           : event->motion.state & GDK_BUTTON3_MASK ? BUTTON_RIGHT
+					           : BUTTON_NONE;
+			EventKey event = button == BUTTON_NONE ? EVENT_WORKAREA_MOUSE_MOTION : EVENT_WORKAREA_MOUSE_BUTTON_DRAG;
+			Smach::event_result er = canvas_view->get_smach().process_event(
+				EventMouse(event, button, mouse_pos, pressure, modifier) );
+			if (er == Smach::RESULT_ACCEPT)
+				return true;
+		}
 
 		break;
-
-	case GDK_BUTTON_RELEASE:
-	{
-		bool ret(false);
-
-		switch(dragging)
-		{
-		case DRAG_GUIDE :
-		{
-			double y(event->button.y),x(event->button.x);
+	}
+	case GDK_BUTTON_RELEASE: {
+		bool ret = false;
+		switch (get_drag_mode()) {
+		case DRAG_GUIDE: {
+			double y(event->button.y), x(event->button.x);
 
 			// Erase the guides if dragged into the rulers
 			if(curr_guide_is_x && !std::isnan(x) && x<0.0 )
-			{
 				get_guide_list_x().erase(curr_guide);
-			}
-			else if(!curr_guide_is_x && !std::isnan(y) && y<0.0 )
-			{
+			else
+			if(!curr_guide_is_x && !std::isnan(y) && y<0.0 )
 				get_guide_list_y().erase(curr_guide);
-			}
 
 			drawing_area->queue_draw();
-
-			dragging=DRAG_NONE;
+			set_drag_mode(DRAG_NONE);
 			save_meta_data();
 			return true;
 		}
-		break;
-		case DRAG_DUCK :
-		{
+		case DRAG_DUCK: {
 			synfigapp::Action::PassiveGrouper grouper(instance.get(),_("Move"));
-			dragging=DRAG_NONE;
+
+			LockDucks lock(get_canvas_view()); // don't rebuild ducks until end_duck_drag will called
+			set_drag_mode(DRAG_NONE);
+
 			//translate_selected_ducks(mouse_pos);
 			set_axis_lock(false);
 
-			try{
-			get_canvas_view()->duck_refresh_flag=false;
-			get_canvas_view()->duck_refresh_needed=false;
-			const bool drag_did_anything(end_duck_drag());
-			get_canvas_view()->duck_refresh_flag=true;
-			if(!drag_did_anything)
-			{
-		        //!TODO Remove HARDCODED UI SPECIFICATION, make it config ready
-
-                // Single click duck selection on WorkArea [Part II]
+			if (!end_duck_drag()) {
+				//!TODO Remove HARDCODED UI SPECIFICATION, make it config ready
+				// Single click duck selection on WorkArea [Part II]
 				// if we originally clicked on a selected duck ...
-				if(clicked_duck)
-				{
+				if (clicked_duck) {
 					// ... and CTRL is pressed, then just toggle the clicked duck
 					//     or not SHIFT is pressed, make the clicked duck the
-				    //     only selected duck. (Nota : SHIFT just add to the selection)
-					if(modifier&GDK_CONTROL_MASK)
+					//     only selected duck. (Nota : SHIFT just add to the selection)
+					if (modifier & GDK_CONTROL_MASK) {
 						unselect_duck(clicked_duck);
-					else if (!(modifier&GDK_SHIFT_MASK))
-					{
+					} else
+					if (!(modifier & GDK_SHIFT_MASK)) {
 						clear_selected_ducks();
 						select_duck(clicked_duck);
 					}
 					clicked_duck->signal_user_click(0)();
 				}
 			}
-			else
-			{
-				if(canvas_view->duck_refresh_needed)
-					canvas_view->queue_rebuild_ducks();
-				return true;
-			}
-			}catch(String)
-			{
-				canvas_view->duck_refresh_flag=true;
-				canvas_view->queue_rebuild_ducks();
-				return true;
-			}
+
 			//queue_draw();
 			clicked_duck=0;
-
-			ret=true;
+			ret = true;
+			break;
 		}
-		break;
-		case DRAG_BEZIER :
-		{
+		case DRAG_BEZIER: {
 			synfigapp::Action::PassiveGrouper grouper(instance.get(),_("Move"));
-			dragging=DRAG_NONE;
+
+			LockDucks lock(get_canvas_view()); // don't rebuild ducks until end_duck_drag will called
+			set_drag_mode(DRAG_NONE);
+
 			//translate_selected_ducks(mouse_pos);
 			set_axis_lock(false);
 
-			try{
-			get_canvas_view()->duck_refresh_flag=false;
-			get_canvas_view()->duck_refresh_needed=false;
-			const bool drag_did_anything(end_bezier_drag());
-			get_canvas_view()->duck_refresh_flag=true;
-			if(!drag_did_anything)
-			{
+			if (!end_bezier_drag()) {
 				// We didn't move the bezier, just clicked on it
-				canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_DOWN,BUTTON_LEFT,mouse_pos,pressure,modifier));
-				canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_UP,BUTTON_LEFT,mouse_pos,pressure,modifier));
+				canvas_view->get_smach().process_event(EventMouse(
+					EVENT_WORKAREA_MOUSE_BUTTON_DOWN, BUTTON_LEFT, mouse_pos, pressure, modifier ));
+				canvas_view->get_smach().process_event(EventMouse(
+					EVENT_WORKAREA_MOUSE_BUTTON_UP, BUTTON_LEFT, mouse_pos, pressure, modifier ));
 			}
-			else
-			{
-				if(canvas_view->duck_refresh_needed)
-					canvas_view->queue_rebuild_ducks();
-				return true;
-			}
-			}catch(String)
-			{
-				canvas_view->duck_refresh_flag=true;
-				canvas_view->queue_rebuild_ducks();
-				return true;
-			}
+
 			//queue_draw();
-			clicked_duck=0;
-
-			ret=true;
+			clicked_duck = 0;
+			ret = true;
+			break;
 		}
-		break;
-
-		case DRAG_BOX:
-		{
-			dragging=DRAG_NONE;
+		case DRAG_BOX: {
+			set_drag_mode(DRAG_NONE);
 			if((drag_point-mouse_pos).mag()>radius/2.0f)
 			{
 				if(canvas_view->get_smach().process_event(EventBox(drag_point,mouse_pos,MouseButton(event->button.button),modifier))==Smach::RESULT_ACCEPT)
@@ -2233,23 +1579,25 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 				}
 			}
 			drawing_area->queue_draw();
+			break;
 		}
-		break;
-		default:
-		{
-		}
+		default: break;
 		} //end switch dragging
 
-		dragging=DRAG_NONE;
+		set_drag_mode(DRAG_NONE);
 
-		if(canvas_view->get_smach().process_event(EventMouse(EVENT_WORKAREA_MOUSE_BUTTON_UP,MouseButton(event->button.button),mouse_pos,pressure,modifier))==Smach::RESULT_ACCEPT)
-			ret=true;
-
+		Smach::event_result er = canvas_view->get_smach().process_event(
+			EventMouse(
+				EVENT_WORKAREA_MOUSE_BUTTON_UP,
+				MouseButton(event->button.button),
+				mouse_pos,
+				pressure,
+				modifier ));
+		if (er == Smach::RESULT_ACCEPT)
+			ret = true;
 		return ret;
 	}
-		break;
-	case GDK_SCROLL:
-	{
+	case GDK_SCROLL: {
 		// Handle a mouse scrolling event like Xara Xtreme and
 		// Inkscape:
 
@@ -2259,9 +1607,7 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 		// Shift + scroll up/down: scroll left/right
 		// Control + scroll up/down: zoom in/out
 
-		if(modifier&GDK_CONTROL_MASK)
-		{
-
+		if (modifier & GDK_CONTROL_MASK) {
 			// The zoom is performed while preserving the pointer
 			// position as a fixed point (similarly to Xara Xtreme and
 			// Inkscape).
@@ -2281,26 +1627,24 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 			const synfig::Point scroll_point(get_scrollx_adjustment()->get_value(),get_scrolly_adjustment()->get_value());
 			const double drift = 0.052;
 
-			switch(event->scroll.direction)
-			{
-				case GDK_SCROLL_UP:
-				case GDK_SCROLL_RIGHT:
-					get_scrollx_adjustment()->set_value(scroll_point[0]+(mouse_pos[0]-scroll_point[0])*(1.25-(1+drift)));
-					get_scrolly_adjustment()->set_value(scroll_point[1]-(mouse_pos[1]+scroll_point[1])*(1.25-(1+drift)));
-					zoom_in();
-					break;
-				case GDK_SCROLL_DOWN:
-				case GDK_SCROLL_LEFT:
-					get_scrollx_adjustment()->set_value(scroll_point[0]+(mouse_pos[0]-scroll_point[0])*(1/1.25-(1+drift)));
-					get_scrolly_adjustment()->set_value(scroll_point[1]-(mouse_pos[1]+scroll_point[1])*(1/1.25-(1+drift)));
-					zoom_out();
-					break;
-				default:
-					break;
+			switch(event->scroll.direction) {
+			case GDK_SCROLL_UP:
+			case GDK_SCROLL_RIGHT:
+				get_scrollx_adjustment()->set_value(scroll_point[0]+(mouse_pos[0]-scroll_point[0])*(1.25-(1+drift)));
+				get_scrolly_adjustment()->set_value(scroll_point[1]-(mouse_pos[1]+scroll_point[1])*(1.25-(1+drift)));
+				zoom_in();
+				break;
+			case GDK_SCROLL_DOWN:
+			case GDK_SCROLL_LEFT:
+				get_scrollx_adjustment()->set_value(scroll_point[0]+(mouse_pos[0]-scroll_point[0])*(1/1.25-(1+drift)));
+				get_scrolly_adjustment()->set_value(scroll_point[1]-(mouse_pos[1]+scroll_point[1])*(1/1.25-(1+drift)));
+				zoom_out();
+				break;
+			default:
+				break;
 			}
-		}
-		else if(modifier&GDK_SHIFT_MASK)
-		{
+		} else
+		if (modifier & GDK_SHIFT_MASK) {
 			// Scroll in either direction by 20 pixels. Ideally, the
 			// amount of pixels per scrolling event should be
 			// configurable. Xara Xtreme currently uses an (hard
@@ -2308,26 +1652,23 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 
 			const int scroll_pixel = 20;
 
-			switch(event->scroll.direction)
-			{
-				case GDK_SCROLL_UP:
-					get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()-scroll_pixel*pw);
-					break;
-				case GDK_SCROLL_DOWN:
-					get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()+scroll_pixel*pw);
-					break;
-				case GDK_SCROLL_LEFT:
-					get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()+scroll_pixel*ph);
-					break;
-				case GDK_SCROLL_RIGHT:
-					get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()-scroll_pixel*ph);
-					break;
-				default:
-					break;
+			switch(event->scroll.direction) {
+			case GDK_SCROLL_UP:
+				get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()-scroll_pixel*pw);
+				break;
+			case GDK_SCROLL_DOWN:
+				get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()+scroll_pixel*pw);
+				break;
+			case GDK_SCROLL_LEFT:
+				get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()+scroll_pixel*ph);
+				break;
+			case GDK_SCROLL_RIGHT:
+				get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()-scroll_pixel*ph);
+				break;
+			default:
+				break;
 			}
-		}
-		else
-		{
+		} else {
 			// Scroll in either direction by 20 pixels. Ideally, the
 			// amount of pixels per scrolling event should be
 			// configurable. Xara Xtreme currently uses an (hard
@@ -2335,51 +1676,45 @@ WorkArea::on_drawing_area_event(GdkEvent *event)
 
 			const int scroll_pixel = 20;
 
-			switch(event->scroll.direction)
-			{
-				case GDK_SCROLL_UP:
-					get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()+scroll_pixel*ph);
-					break;
-				case GDK_SCROLL_DOWN:
-					get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()-scroll_pixel*ph);
-					break;
-				case GDK_SCROLL_LEFT:
-					get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()-scroll_pixel*pw);
-					break;
-				case GDK_SCROLL_RIGHT:
-					get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()+scroll_pixel*pw);
-					break;
-				default:
-					break;
+			switch(event->scroll.direction) {
+			case GDK_SCROLL_UP:
+				get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()+scroll_pixel*ph);
+				break;
+			case GDK_SCROLL_DOWN:
+				get_scrolly_adjustment()->set_value(get_scrolly_adjustment()->get_value()-scroll_pixel*ph);
+				break;
+			case GDK_SCROLL_LEFT:
+				get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()-scroll_pixel*pw);
+				break;
+			case GDK_SCROLL_RIGHT:
+				get_scrollx_adjustment()->set_value(get_scrollx_adjustment()->get_value()+scroll_pixel*pw);
+				break;
+			default:
+				break;
 			}
 		}
-	}
-		break;
-	default:
 		break;
 	}
-		return false;
+	default: break;
+	}
+
+	return false;
 }
 
 bool
 WorkArea::on_hruler_event(GdkEvent *event)
 {
-	switch(event->type)
-    {
+	switch(event->type) {
 	case GDK_BUTTON_PRESS:
-		if(dragging==DRAG_NONE && show_guides)
-		{
-			dragging=DRAG_GUIDE;
-			curr_guide=get_guide_list_y().insert(get_guide_list_y().begin(), 0.0);
-			curr_guide_is_x=false;
+		if (get_drag_mode() == DRAG_NONE && show_guides) {
+			set_drag_mode(DRAG_GUIDE);
+			curr_guide = get_guide_list_y().insert(get_guide_list_y().begin(), 0.0);
+			curr_guide_is_x = false;
 		}
 		return true;
-		break;
-
 	case GDK_MOTION_NOTIFY:
 		// Guide movement
-		if(dragging==DRAG_GUIDE && curr_guide_is_x==false)
-		{
+		if (get_drag_mode() == DRAG_GUIDE && !curr_guide_is_x) {
 			// Event is in the hruler, which has a slightly different
 			// coordinate system from the canvas.
 			event->motion.y -= hruler->get_height()+2;
@@ -2388,16 +1723,12 @@ WorkArea::on_hruler_event(GdkEvent *event)
 			on_drawing_area_event(event);
 		}
 		return true;
-		break;
-
 	case GDK_BUTTON_RELEASE:
-		if(dragging==DRAG_GUIDE && curr_guide_is_x==false)
-		{
-			dragging=DRAG_NONE;
+		if (get_drag_mode() == DRAG_GUIDE && !curr_guide_is_x) {
+			set_drag_mode(DRAG_NONE);
 			save_meta_data();
-//			get_guide_list_y().erase(curr_guide);
+			//get_guide_list_y().erase(curr_guide);
 		}
-		break;
 		return true;
 	default:
 		break;
@@ -2408,22 +1739,17 @@ WorkArea::on_hruler_event(GdkEvent *event)
 bool
 WorkArea::on_vruler_event(GdkEvent *event)
 {
-	switch(event->type)
-    {
+	switch(event->type) {
 	case GDK_BUTTON_PRESS:
-		if(dragging==DRAG_NONE && show_guides)
-		{
-			dragging=DRAG_GUIDE;
+		if (get_drag_mode() == DRAG_NONE && show_guides) {
+			set_drag_mode(DRAG_GUIDE);
 			curr_guide=get_guide_list_x().insert(get_guide_list_x().begin(),0.0);
 			curr_guide_is_x=true;
 		}
 		return true;
-		break;
-
 	case GDK_MOTION_NOTIFY:
 		// Guide movement
-		if(dragging==DRAG_GUIDE && curr_guide_is_x==true)
-		{
+		if (get_drag_mode() == DRAG_GUIDE && curr_guide_is_x) {
 			// Event is in the vruler, which has a slightly different
 			// coordinate system from the canvas.
 			event->motion.x -= vruler->get_width()+2;
@@ -2432,16 +1758,12 @@ WorkArea::on_vruler_event(GdkEvent *event)
 			on_drawing_area_event(event);
 		}
 		return true;
-		break;
-
 	case GDK_BUTTON_RELEASE:
-		if(dragging==DRAG_GUIDE && curr_guide_is_x==true)
-		{
-			dragging=DRAG_NONE;
+		if (get_drag_mode() == DRAG_GUIDE && curr_guide_is_x) {
+			set_drag_mode(DRAG_NONE);
 			save_meta_data();
-//			get_guide_list_x().erase(curr_guide);
+			//get_guide_list_x().erase(curr_guide);
 		}
-		break;
 		return true;
 	default:
 		break;
@@ -2452,8 +1774,7 @@ WorkArea::on_vruler_event(GdkEvent *event)
 void
 WorkArea::on_duck_selection_single(const etl::handle<Duck>& duck)
 {
-	if(dragging == DRAG_NONE)
-	{
+	if (get_drag_mode() == DRAG_NONE) {
 		studio::LayerTree* tree_layer(dynamic_cast<studio::LayerTree*>(canvas_view->get_ext_widget("layers_cmp")));
 		tree_layer->select_param(duck->get_value_desc());
 	}
@@ -2462,6 +1783,16 @@ WorkArea::on_duck_selection_single(const etl::handle<Duck>& duck)
 void
 WorkArea::refresh_dimension_info()
 {
+	const RendDesc &desc = get_canvas()->rend_desc();
+	w = (int)(desc.get_w()*zoom);
+	h = (int)(desc.get_h()*zoom);
+
+	if (drawing_area->get_width()<=0 || drawing_area->get_height()<=0 || w<=0 || h<=0)
+		return;
+
+	thumb_w = THUMB_SIZE;
+	thumb_h = (thumb_w*desc.get_h() + desc.get_w()/2)/desc.get_w(); // add desc.get_w()/2 for valid rounding
+
 	synfig::RendDesc &rend_desc(get_canvas()->rend_desc());
 
 	canvaswidth=rend_desc.get_br()[0]-rend_desc.get_tl()[0];
@@ -2470,17 +1801,19 @@ WorkArea::refresh_dimension_info()
 	pw=canvaswidth/w;
 	ph=canvasheight/h;
 
-	scrollx_adjustment->set_page_increment(abs(get_grid_size()[0]));
-	scrollx_adjustment->set_step_increment(abs(pw));
-	scrollx_adjustment->set_lower(-abs(canvaswidth));
-	scrollx_adjustment->set_upper(abs(canvaswidth));
-	scrolly_adjustment->set_lower(-abs(canvasheight));
-	scrolly_adjustment->set_upper(abs(canvasheight));
-	scrolly_adjustment->set_step_increment(abs(ph));
-	scrolly_adjustment->set_page_increment(abs(get_grid_size()[1]));
+	ConfigureAdjustment(scrollx_adjustment)
+		.set_lower(-fabs(canvaswidth))
+		.set_upper(fabs(canvaswidth))
+		.set_step_increment(fabs(pw))
+		.set_page_increment(fabs(get_grid_size()[0]))
+		.finish();
 
-	if(drawing_area->get_width()<=0 || drawing_area->get_height()<=0 || w==0 || h==0)
-		return;
+	ConfigureAdjustment(scrolly_adjustment)
+		.set_lower(-fabs(canvasheight))
+		.set_upper(fabs(canvasheight))
+		.set_step_increment(fabs(ph))
+		.set_page_increment(fabs(get_grid_size()[1]))
+		.finish();
 
 	const synfig::Point focus_point(get_focus_point());
 	const synfig::Real x(focus_point[0]/pw+drawing_area->get_width()/2-w/2);
@@ -2538,7 +1871,7 @@ WorkArea::get_windows_offset() const
 }
 
 synfig::RectInt
-WorkArea::get_window_rect(int stepx, int stepy) const
+WorkArea::get_window_rect() const
 {
 	VectorInt offset = get_windows_offset();
 
@@ -2548,87 +1881,20 @@ WorkArea::get_window_rect(int stepx, int stepy) const
 		-offset[0] + drawing_area->get_width(),
 		-offset[1] + drawing_area->get_height() );
 
-	rect.minx = rect.minx < 0 ? ((rect.minx+1)/stepx-1)*stepx : rect.minx/stepx*stepx;
-	rect.maxx = rect.maxx < 0 ? rect.maxx/stepx*stepx : ((rect.maxx-1)/stepx+1)*stepx;
-	rect.miny = rect.miny < 0 ? ((rect.miny+1)/stepy-1)*stepy : rect.miny/stepy*stepy;
-	rect.maxy = rect.maxy < 0 ? rect.maxy/stepy*stepy : ((rect.maxy-1)/stepy+1)*stepy;
-
 	etl::set_intersect(rect, rect, RectInt(0, 0, w, h));
 	return rect;
 }
 
-
-#ifdef SINGLE_THREADED
-/* resize bug workaround */
-gboolean
-WorkArea::__refresh_second_check(gpointer data)
-{
-	WorkArea *work_area(static_cast<WorkArea*>(data));
-	work_area->refresh_second_check();
-	return 0;
-}
-
-void
-WorkArea::refresh_second_check()
-{
-	//resize_timeout_connect.disconnect();
-	int width = canvas_view->get_width();
-	int height = canvas_view->get_height();
-	if (width==old_window_width && height==old_window_height ) {
-		queue_draw();
-		//GdkEventExpose event;
-		//refresh(&event);
-	}
-}
-#endif
-
 bool
-WorkArea::refresh(const Cairo::RefPtr<Cairo::Context> &cr)
+WorkArea::refresh(const Cairo::RefPtr<Cairo::Context> &/*cr*/)
 {
-#ifdef SINGLE_THREADED
-	/* resize bug workaround */
-	if (App::single_threaded) {
-		int width;
-		int height;
-		bool resize_in_progress;
-		resize_in_progress = false;
-		width = canvas_view->get_width();
-		height = canvas_view->get_height();
-		//synfig::info("Size: %i, %i",width,height);
-		if (width!=old_window_width || height!=old_window_height ) {
-
-			resize_in_progress = true;
-
-			//queue second check
-			int func_id;
-			func_id=g_timeout_add_full(
-				G_PRIORITY_DEFAULT,	// priority -
-				200,			// interval - the time between calls to the function, in milliseconds (1/1000ths of a second)
-				__refresh_second_check,	// function - function to call
-				this,				// data     - data to pass to function
-				NULL);				// notify   - function to call when the idle is removed, or NULL
-		}
-		old_window_width=width;
-		old_window_height=height;
-		if (resize_in_progress){
-			if (get_updating())
-			{
-				stop_updating();
-			}
-			return true;
-		}
-	}
-#endif
-
 	assert(get_canvas());
 
 	//!Check if the window we want draw is ready
 	Glib::RefPtr<Gdk::Window> draw_area_window = drawing_area->get_window();
-	if(!draw_area_window) return false;
+	if (!draw_area_window) return false;
 
-	//const synfig::RendDesc &rend_desc(get_canvas()->rend_desc());
-
-	const synfig::Vector focus_point(get_focus_point());
+	const Vector focus_point(get_focus_point());
 
 	// Update the old focus point
 	last_focus_point=focus_point;
@@ -2646,28 +1912,9 @@ WorkArea::refresh(const Cairo::RefPtr<Cairo::Context> &cr)
 		}
 	}
 
-	// Calculate the window coordinates of the top-left
-	// corner of the canvas.
-	//const synfig::Vector::value_type
-	//	x(focus_point[0]/pw+drawing_area->get_width()/2-w/2),
-	//	y(focus_point[1]/ph+drawing_area->get_height()/2-h/2);
-
-	//const synfig::Vector::value_type window_startx(window_tl[0]);
-	//const synfig::Vector::value_type window_endx(window_br[0]);
-	//const synfig::Vector::value_type window_starty(window_tl[1]);
-	//const synfig::Vector::value_type window_endy(window_br[1]);
-
 	// If we are in animate mode, draw a red border around the screen
 	if(canvas_interface->get_mode()&synfigapp::MODE_ANIMATE)
 	{
-// #define USE_FRAME_BACKGROUND_TO_SHOW_EDIT_MODE
-#ifdef USE_FRAME_BACKGROUND_TO_SHOW_EDIT_MODE
-		// This method of drawing the red border doesn't work on any
-		// Gtk theme which uses the crux-engine, hcengine, industrial,
-		// mist, or ubuntulooks engine, such as the default ubuntu
-		// 'Human' theme.
-		drawing_frame->modify_bg(Gtk::STATE_NORMAL,Gdk::Color("#FF0000"));
-#else
 		// So let's do it in a more primitive fashion.
 		Cairo::RefPtr<Cairo::Context> cr = draw_area_window->create_cairo_context();
 		cr->save();
@@ -2678,39 +1925,12 @@ WorkArea::refresh(const Cairo::RefPtr<Cairo::Context> &cr)
 		cr->set_antialias(Cairo::ANTIALIAS_NONE);
 		cr->set_line_width(10);
 
-		cr->rectangle(
-			0,0, // x,y
-			drawing_area->get_width(),drawing_area->get_height() //w,h
-			);
+		cr->rectangle(0, 0, drawing_area->get_width(),drawing_area->get_height());
 		cr->stroke();
 		cr->restore();
-#endif
 	}
-#ifdef USE_FRAME_BACKGROUND_TO_SHOW_EDIT_MODE
-	else
-		drawing_frame->unset_bg(Gtk::STATE_NORMAL);
-#endif
 
 	return true;
-}
-
-void
-WorkArea::done_rendering()
-{
-/*
-	assert(buffer);
-	assert(w>0);
-	assert(h>0);
-	pix_buf=Gdk::Pixbuf::create_from_data(
-		buffer,	// pointer to the data
-		Gdk::COLORSPACE_RGB, // the colorspace
-		true, // has alpha?
-		8, // bits per sample
-		w,	// width
-		h,	// height
-		w*bpp);	// stride (pitch)
-	assert(pix_buf);
-*/
 }
 
 String
@@ -2726,341 +1946,12 @@ WorkArea::get_renderer() const
 }
 
 void
-WorkArea::set_quality(int x)
-{
-	if(x==quality)
-		return;
-	quality=x;
-	queue_render_preview();
-}
-
-void
 WorkArea::set_low_res_pixel_size(int x)
 {
 	if(x==low_res_pixel_size)
 		return;
 	low_res_pixel_size=x;
-	queue_render_preview();
-}
-
-namespace studio
-{
-class WorkAreaProgress : public synfig::ProgressCallback
-{
-	WorkArea *work_area;
-	ProgressCallback *cb;
-
-public:
-
-	WorkAreaProgress(WorkArea *work_area,ProgressCallback *cb):
-		work_area(work_area),cb(cb)
-	{
-		assert(cb);
-	}
-
-	virtual bool
-	task(const std::string &str)
-	{
-		if(work_area->dirty)
-			return false;
-		return cb->task(str);
-	}
-
-	virtual bool
-	error(const std::string &err)
-	{
-		if(work_area->dirty)
-			return false;
-		return cb->error(err);
-	}
-
-	virtual bool
-	amount_complete(int current, int total)
-	{
-		if(work_area->dirty)
-			return false;
-		return cb->amount_complete(current,total);
-	}
-};
-}
-
-bool
-studio::WorkArea::async_update_preview()
-{
-#ifdef SINGLE_THREADED
-	if (get_updating())
-	{
-		stop_updating();
-		queue_render_preview();
-		return false;
-	}
-#endif
-
-	async_renderer=0;
-
-	queued=false;
-	canceled_=false;
-	get_canvas_view()->reset_cancel_status();
-
-	// This object will mark us as busy until
-	// we are done.
-	//studio::App::Busy busy;
-
-	//WorkAreaProgress callback(this,get_canvas_view()->get_ui_interface().get());
-	//synfig::ProgressCallback *cb=&callback;
-
-	if(!get_visible())return false;
-
-	/*
-	// If we are queued to render the scene at the next idle
-	// go ahead and de-queue it.
-	if(render_idle_func_id)
-	{
-		g_source_remove(render_idle_func_id);
-		//queued=false;
-		render_idle_func_id=0;
-	}
-	*/
-
-	dirty=false;
-	get_canvas_view()->reset_cancel_status();
-
-	//bool ret=false;
-	RendDesc desc=get_canvas()->rend_desc();
-
-	int w=(int)(desc.get_w()*zoom);
-	int h=(int)(desc.get_h()*zoom);
-
-	// ensure that the size we draw is at least one pixel in each dimension
-	int min_size = low_resolution ? low_res_pixel_size : 1;
-	if (w < min_size) w = min_size;
-	if (h < min_size) h = min_size;
-
-	// Setup the description parameters
-	desc.set_antialias(1);
-	desc.set_time(cur_time);
-	desc.set_render_excluded_contexts(true);
-
-	set_rend_desc(desc);
-
-	// Create the render target
-	handle<Target> target;
-
-	// do a tile render
-	handle<WorkAreaTarget> trgt(new class WorkAreaTarget(this,w,h,2048,2048,false));
-
-	trgt->set_rend_desc(&desc);
-	trgt->set_onion_skin(get_onion_skin(), onion_skins);
-	trgt->set_engine(get_renderer());
-	target=trgt;
-
-	// We can rest assured that our time has already
-	// been set, so there is no need to have to
-	// recalculate that over again.
-	// UPDATE: This is kind of needless with
-	// the way that time is handled now in SYNFIG.
-	//target->set_avoid_time_sync(true);
-	async_renderer=new AsyncRenderer(target);
-	async_renderer->signal_finished().connect(
-		sigc::mem_fun(this,&WorkArea::async_update_finished)
-	);
-
-	rendering=true;
-	synfig::ProgressCallback *cb=get_canvas_view()->get_ui_interface().get();
-	cb->task(_("Rendering..."));
-
-	async_renderer->start();
-
-	return true;
-}
-
-void
-studio::WorkArea::async_update_finished()
-{
-	synfig::ProgressCallback *cb=get_canvas_view()->get_ui_interface().get();
-
-	rendering=false;
-
-	if(!async_renderer)
-		return;
-
-	// If we completed successfully, then
-	// we aren't dirty anymore
-	if(async_renderer->has_success())
-	{
-		Real execution_time = async_renderer->get_execution_time();
-		if (execution_time > 0.0)
-		{
-			cb->task( strprintf("%s %f (%f) %s",
-				_("Rendered:"),
-				async_renderer->get_execution_time(),
-				async_renderer->get_execution_clock(),
-				_("sec") ));
-		}
-		else
-		{
-			cb->task(_("Idle"));
-		}
-
-	}
-	else
-	{
-		dirty=true;
-		cb->task(_("Render Failed"));
-	}
-	//get_canvas_view()->reset_cancel_status();
-	done_rendering();
-}
-
-bool
-studio::WorkArea::sync_update_preview()
-{
-	//	const Time &time(cur_time);
-
-	canceled_=false;
-	get_canvas_view()->reset_cancel_status();
-
-	async_renderer=0;
-
-again:
-	// This object will mark us as busy until
-	// we are done.
-	studio::App::Busy busy;
-
-	WorkAreaProgress callback(this,get_canvas_view()->get_ui_interface().get());
-	synfig::ProgressCallback *cb=&callback;
-
-	// We don't want to render if we are already rendering
-	if(rendering)
-	{
-		dirty=true;
-		return false;
-	}
-
-	if(!get_visible())return false;
-	get_canvas()->set_time(get_time());
-	get_canvas_view()->get_smach().process_event(EVENT_REFRESH_DUCKS);
-	signal_rendering()();
-
-	// If we are queued to render the scene at the next idle
-	// go ahead and de-queue it.
-	if(render_idle_func_id)
-	{
-		g_source_remove(render_idle_func_id);
-		//queued=false;
-		render_idle_func_id=0;
-	}
-	// Start rendering
-	rendering=true;
-
-	dirty=false;
-	get_canvas_view()->reset_cancel_status();
-
-	RendDesc desc=get_canvas()->rend_desc();
-	//newdesc->set_flags(RendDesc::PX_ASPECT|RendDesc::IM_SPAN);
-
-	int w=(int)(desc.get_w()*zoom);
-	int h=(int)(desc.get_h()*zoom);
-
-	// Setup the description parameters
-	desc.set_antialias(1);
-	desc.set_time(cur_time);
-	//desc.set_wh(w,h);
-
-	set_rend_desc(desc);
-
-	// Create the render target
-	handle<WorkAreaTarget> target = new WorkAreaTarget(this,w,h,2048,2048,true);
-	target->set_rend_desc(&desc);
-	target->set_engine(get_renderer());
-
-	// We can rest assured that our time has already
-	// been set, so there is no need to have to
-	// recalculate that over again.
-	target->set_avoid_time_sync(true);
-
-	if(cb)
-		cb->task(strprintf(_("Rendering canvas %s..."),get_canvas()->get_name().c_str()));
-
-	bool ret = target->render(cb);
-
-	if(!ret && !get_canvas_view()->get_cancel_status() && dirty)
-	{
-		rendering=false;
-		//canceled_=true;
-		goto again;
-	}
-	if(get_canvas_view()->get_cancel_status())
-		canceled_=true;
-
-	if(cb)
-	{
-		if(ret)
-			cb->task(_("Idle"));
-		else
-			cb->task(_("Render Failed"));
-		cb->amount_complete(0,1);
-	}
-
-	// Refresh the work area to make sure that
-	// it is being displayed correctly
-	drawing_area->queue_draw();
-
-	// If we completed successfully, then
-	// we aren't dirty anymore
-	if(ret)
-	{
-		dirty=false;
-		//queued=false;
-	}
-	else dirty=true;
-	rendering=false;
-	//get_canvas_view()->reset_cancel_status();
-	done_rendering();
-	return ret;
-}
-
-void
-studio::WorkArea::async_render_preview(synfig::Time time)
-{
-	cur_time=time;
-	//tile_book.clear();
-
-	refreshes+=5;
-	if(!get_visible())return;
-
-	get_canvas()->set_time(get_time());
-	get_canvas_view()->get_smach().process_event(EVENT_REFRESH_DUCKS);
-	signal_rendering()();
-
-	async_update_preview();
-}
-void
-WorkArea::async_render_preview()
-{
-	return async_render_preview(get_canvas_view()->get_time());
-}
-
-bool
-studio::WorkArea::sync_render_preview(synfig::Time time)
-{
-	cur_time=time;
-	//tile_book.clear();
-	refreshes+=5;
-	if(!get_visible())return false;
-	return sync_update_preview();
-}
-
-bool
-WorkArea::sync_render_preview()
-{
-	return sync_render_preview(get_canvas_view()->get_time());
-}
-
-void
-WorkArea::sync_render_preview_hook()
-{
-	sync_render_preview(get_canvas_view()->get_time());
+	queue_render();
 }
 
 void
@@ -3104,7 +1995,6 @@ WorkArea::queue_scroll()
 		drawing_area->queue_draw_area(bonesetup_x-dx, bonesetup_y-dy, bonesetup_x-dx+bonesetup_width, bonesetup_y-dy+bonesetup_height);
 	}
 
-#ifndef USE_FRAME_BACKGROUND_TO_SHOW_EDIT_MODE
 	if(canvas_interface->get_mode()&synfigapp::MODE_ANIMATE)
 	{
 		int maxx = drawing_area->get_width()-1;
@@ -3131,7 +2021,6 @@ WorkArea::queue_scroll()
 			drawing_area->queue_draw_area(0,     -dy, maxx,     -dy);
 		}
 	}
-#endif // USE_FRAME_BACKGROUND_TO_SHOW_EDIT_MODE
 
 	last_focus_point=focus_point;
 }
@@ -3178,88 +2067,26 @@ studio::WorkArea::zoom_edit()
 	set_zoom(zoomdial->get_zoom(zoom));
 }
 
-gboolean
-studio::WorkArea::__render_preview(gpointer data)
+void
+WorkArea::sync_render(bool refresh)
 {
-	WorkArea *work_area(static_cast<WorkArea*>(data));
-
-	// there's no point anyone trying to cancel the timer now - it's gone off already
-	work_area->render_idle_func_id = 0;
-
-	work_area->queued=false;
-	work_area->async_render_preview(work_area->get_canvas_view()->get_time());
-
-	return 0;
+	dirty_trap_queued = 0;
+	if (refresh) renderer_canvas->clear_render();
+	renderer_canvas->enqueue_render();
+	renderer_canvas->wait_render();
 }
 
 void
-studio::WorkArea::queue_render_preview()
+studio::WorkArea::queue_render(bool refresh)
 {
-	//synfig::info("queue_render_preview(): called for %s", get_canvas_view()->get_time().get_string().c_str());
-
-	if(queued==true)
-	{
-		return;
-		//synfig::info("queue_render_preview(): already queued, unqueuing");
-/*		if(render_idle_func_id)
-			g_source_remove(render_idle_func_id);
-		render_idle_func_id=0;
-		queued=false;
-*/
-		//async_renderer=0;
-	}
-
-	if(dirty_trap_enabled)
-	{
-		dirty_trap_queued++;
-		return;
-	}
-
-	int queue_time=50;
-
-	if(rendering)
-		queue_time+=250;
-
-
-	if(queued==false)
-	{
-		queued=true;
-		//synfig::info("queue_render_preview(): (re)queuing...");
-		//render_idle_func_id=g_idle_add_full(G_PRIORITY_DEFAULT,__render_preview,this,NULL);
-		render_idle_func_id=g_timeout_add_full(
-			G_PRIORITY_DEFAULT,	// priority -
-			queue_time,			// interval - the time between calls to the function, in milliseconds (1/1000ths of a second)
-			__render_preview,	// function - function to call
-			this,				// data     - data to pass to function
-			NULL);				// notify   - function to call when the idle is removed, or NULL
-	}
-/*	else if(rendering)
-	{
-		refreshes+=5;
-		dirty=true;
-		queue_draw();
-	}
-*/
-}
-
-DirtyTrap::DirtyTrap(WorkArea *work_area):work_area(work_area)
-{
-	work_area->dirty_trap_enabled=true;
-
-	work_area->dirty_trap_queued=0;
-}
-
-DirtyTrap::~DirtyTrap()
-{
-	work_area->dirty_trap_enabled=false;
-	if(work_area->dirty_trap_queued)
-		work_area->queue_render_preview();
-}
-
-void
-studio::WorkArea::queue_draw_preview()
-{
-	drawing_area->queue_draw();
+	assert(dirty_trap_count >= 0);
+	if (dirty_trap_count > 0)
+		{ dirty_trap_queued++; return; }
+	dirty_trap_queued = 0;
+	if (refresh) renderer_canvas->clear_render();
+	Glib::signal_idle().connect_once(
+		sigc::mem_fun(*renderer_canvas, &Renderer_Canvas::enqueue_render),
+		Glib::PRIORITY_DEFAULT );
 }
 
 void
@@ -3267,8 +2094,7 @@ studio::WorkArea::set_cursor(const Glib::RefPtr<Gdk::Cursor> &x)
 {
 	//!Check if the window we want draw is ready
 	Glib::RefPtr<Gdk::Window> draw_area_window = drawing_area->get_window();
-	if(!draw_area_window) return;
-
+	if (!draw_area_window) return;
 	draw_area_window->set_cursor(x);
 }
 void
@@ -3277,11 +2103,9 @@ studio::WorkArea::set_cursor(Gdk::CursorType x)
 	//!Check if the window we want draw is ready
 	Glib::RefPtr<Gdk::Window> draw_area_window = drawing_area->get_window();
 	if(!draw_area_window) return;
-
 	draw_area_window->set_cursor(Gdk::Cursor::create(x));
 }
 
-//#include "iconcontroller.h"
 void
 studio::WorkArea::refresh_cursor()
 {
@@ -3309,14 +2133,8 @@ studio::WorkArea::set_zoom(float z)
 	zoom = z;
 
 	refresh_dimension_info();
-	/*if(async_renderer)
-	{
-		async_renderer->stop();
-		async_renderer=0;
-	}*/
-	refreshes+=5;
-	async_update_preview();
-	//queue_render_preview();
+	queue_draw();
+
 	// TODO: FIXME: QuickHack
 	if (canvas_view->get_smach().get_state_name() != std::string("polygon")
 	 && canvas_view->get_smach().get_state_name() != std::string("bline"))
@@ -3353,7 +2171,9 @@ WorkArea::erase_renderer(const etl::handle<WorkAreaRenderer> &x)
 {
 	x->set_work_area(0);
 	renderer_set_.erase(x);
-	queue_draw();
+	// queue_draw();
+	// because erase_renderer is called only form destructor, we do not need to
+	// queue draw widget update (GTK error is produced)
 }
 
 void
@@ -3365,32 +2185,4 @@ WorkArea::resort_render_set()
 	);
 	renderer_set_.swap(tmp);
 	queue_draw();
-}
-
-WorkArea::PushState::PushState(WorkArea *workarea_):
-	workarea_(workarea_)
-{
-	type_mask=workarea_->get_type_mask();
-	allow_duck_clicks=workarea_->get_allow_duck_clicks();
-	allow_bezier_clicks=workarea_->get_allow_bezier_clicks();
-	allow_layer_clicks=workarea_->get_allow_layer_clicks();
-	needs_restore=true;
-}
-
-WorkArea::PushState::~PushState()
-{
-	if(needs_restore)
-		restore();
-}
-
-void
-WorkArea::PushState::restore()
-{
-	workarea_->set_type_mask(type_mask);
-	// update the toggle buttons for the duck types
-	workarea_->get_canvas_view()->toggle_duck_mask(Duck::TYPE_NONE);
-	workarea_->set_allow_duck_clicks(allow_duck_clicks);
-	workarea_->set_allow_bezier_clicks(allow_bezier_clicks);
-	workarea_->set_allow_layer_clicks(allow_layer_clicks);
-	needs_restore=false;
 }

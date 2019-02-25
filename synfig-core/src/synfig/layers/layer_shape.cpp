@@ -1046,6 +1046,35 @@ void Layer_Shape::cubic_to(Real x, Real y, Real x1, Real y1, Real x2, Real y2)
 }
 
 void
+Layer_Shape::add(const CurvePoint &cp)
+{
+	switch(cp.level) {
+	case 1: line_to(cp.p); break;
+	case 2: conic_to(cp.p, cp.p1); break;
+	case 3: cubic_to(cp.p, cp.p1, cp.p2); break;
+	default: move_to(cp.p);
+	}
+}
+
+void
+Layer_Shape::add(const CurveList &list)
+	{ for(CurveList::const_iterator i = list.begin(); i != list.end(); ++i) add(*i); }
+
+void
+Layer_Shape::add_reverse(const CurveList &list) {
+	if (list.empty()) return;
+	line_to(list.back().p);
+	for(CurveList::const_reverse_iterator rj = list.rbegin(), ri = rj++; rj != list.rend(); ri = rj++) {
+		switch(ri->level) {
+		case 1: line_to(rj->p); break;
+		case 2: conic_to(rj->p, ri->p1); break;
+		case 3: cubic_to(rj->p, ri->p2, ri->p1); break;
+		default: move_to(rj->p);
+		}
+	}
+}
+
+void
 Layer_Shape::set_time_vfunc(IndependentContext context, Time time)const
 {
 	sync();
@@ -1208,10 +1237,10 @@ Layer_Shape::accelerated_render(Context context,Surface *surface,int quality, co
 		Blur(feather,feather,blurtype,&stagethree)(shapesurface,workdesc.get_br()-workdesc.get_tl(),shapesurface);
 
 		//blend with stuff below it...
-		unsigned int u = halfsizex, v = halfsizey, x = 0, y = 0;
+		unsigned int v = halfsizey, x = 0, y = 0;
 		for(y = 0; y < h; y++,v++)
 		{
-			u = halfsizex;
+			unsigned int u = halfsizex;
 			for(x = 0; x < w; x++,u++)
 			{
 				Color::value_type a = shapesurface[v][u].get_a();
@@ -1247,9 +1276,9 @@ Layer_Shape::render_shape(Surface *surface, bool useblend, const RendDesc &rendd
 	Matrix translate;
 	translate.set_translate(origin);
 	Matrix world_to_pixels_matrix =
-		translate
+	    renddesc.get_world_to_pixels_matrix()
 	  * renddesc.get_transformation_matrix()
-	  * renddesc.get_world_to_pixels_matrix();
+	  * translate;
 
 	rendering::software::Contour::render_contour(
 		*surface,
@@ -1273,7 +1302,7 @@ Layer_Shape::build_composite_task_vfunc(ContextParams /*context_params*/)const
 
 	rendering::TaskContour::Handle task_contour(new rendering::TaskContour());
 	// TODO: multithreading without this copying
-	task_contour->transformation.set_translate( param_origin.get(Vector()) );
+	task_contour->transformation->matrix.set_translate( param_origin.get(Vector()) );
 	task_contour->contour = new rendering::Contour();
 	task_contour->contour->assign(*contour);
 	task_contour->contour->color = param_color.get(Color());

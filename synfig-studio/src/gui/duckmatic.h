@@ -50,33 +50,7 @@
 
 /* === M A C R O S ========================================================= */
 
-#ifdef HASH_MAP_H
-#include HASH_MAP_H
-#include FUNCTIONAL_H
-
-#ifndef __STRING_HASH__
-#define __STRING_HASH__
-class StringHash
-{
-# ifdef FUNCTIONAL_HASH_ON_STRING
-	HASH_MAP_NAMESPACE::hash<synfig::String> hasher_;
-# else  // FUNCTIONAL_HASH_ON_STRING
-	HASH_MAP_NAMESPACE::hash<const char*> hasher_;
-# endif  // FUNCTIONAL_HASH_ON_STRING
-public:
-	size_t operator()(const synfig::String& x)const
-	{
-# ifdef FUNCTIONAL_HASH_ON_STRING
-		return hasher_(x);
-# else  // FUNCTIONAL_HASH_ON_STRING
-		return hasher_(x.c_str());
-# endif  // FUNCTIONAL_HASH_ON_STRING
-	}
-};
-#endif
-#else
 #include <map>
-#endif
 
 /* === T Y P E D E F S ===================================================== */
 
@@ -105,7 +79,7 @@ class DuckDrag_Translate : public DuckDrag_Base
 	synfig::Vector drag_offset_;
 	synfig::Vector snap;
 	std::vector<synfig::Vector> positions;
-	bool is_moving;
+	bool is_moving = false;
 
 public:
 	void begin_duck_drag(Duckmatic* duckmatic, const synfig::Vector& begin);
@@ -159,11 +133,7 @@ class Duckmatic
 
 public:
 
-#ifdef HASH_MAP_H
-typedef HASH_MAP_CLASS<synfig::GUID,etl::smart_ptr<synfig::Point>,synfig::GUIDHash> DuckDataMap;
-#else
-typedef std::map<synfig::GUID,etl::smart_ptr<synfig::Point> > DuckDataMap;
-#endif
+	typedef std::map<synfig::GUID,etl::smart_ptr<synfig::Point> > DuckDataMap;
 
 	typedef studio::DuckMap DuckMap;
 
@@ -514,7 +484,8 @@ public:
 
 	etl::handle<Bezier> find_bezier(synfig::Point pos, synfig::Real scale, synfig::Real radius, float* location=0);
 
-	void add_ducks_layers(synfig::Canvas::Handle canvas, std::set<synfig::Layer::Handle>& selected_layer_set, etl::handle<CanvasView> canvas_view, synfig::TransformStack& transform_stack);
+	//! if transform_count is set function will not restore transporm stack
+	void add_ducks_layers(synfig::Canvas::Handle canvas, std::set<synfig::Layer::Handle>& selected_layer_set, etl::handle<CanvasView> canvas_view, synfig::TransformStack& transform_stack, int *transform_count = NULL);
 
 	bool add_to_ducks(const synfigapp::ValueDesc& value_desc,etl::handle<CanvasView> canvas_view, const synfig::TransformStack& transform_stack_, synfig::ParamDesc *param_desc=0);
 

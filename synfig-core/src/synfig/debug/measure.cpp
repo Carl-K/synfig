@@ -52,24 +52,27 @@ using namespace debug;
 
 /* === M E T H O D S ======================================================= */
 
+Glib::Threads::Mutex Measure::mutex;
 std::vector<Measure*> Measure::stack;
 String Measure::text;
 
 void Measure::init() {
+	Glib::Threads::Mutex::Lock lock(mutex);
 	hide = !stack.empty() && stack.back()->hide_subs;
-	hide_subs |= hide;
+	hide_subs = hide_subs || hide;
 	if (!hide)
 		text += String(stack.size()*2, ' ')
 		      + "begin             "
 		      + name
 			  + "\n";
 	stack.push_back(this);
-	t = g_get_real_time();
+	t = g_get_monotonic_time();
 	cpu_t = clock();
 }
 
 Measure::~Measure() {
-	long long dt = g_get_real_time() - t;
+	Glib::Threads::Mutex::Lock lock(mutex);
+	long long dt = g_get_monotonic_time() - t;
 	long long cpu_dt = clock() - cpu_t;
 
 	double full_s = (double)dt*0.000001;
@@ -80,10 +83,10 @@ Measure::~Measure() {
 
 	if (!hide)
 		text += String((stack.size()-1)*2, ' ')
-		      + "end " + strprintf("%13.6f ", subs ? subs_s : full_s)
+		      + "end " + strprintf("%13.6f ", full_s)
 		      + name
 			  + (subs
-				? strprintf(" (cpu time: %.6f, full time: %.6f, full cpu time: %.6f)", cpu_subs_s, full_s, cpu_full_s)
+				? strprintf(" (cpu time: %.6f, subs time: %.6f, subs cpu time: %.6f)", cpu_full_s, subs_s, cpu_subs_s)
 				: strprintf(" (cpu time: %.6f)", cpu_full_s) )
 		      + "\n";
 

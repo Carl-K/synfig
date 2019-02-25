@@ -2,8 +2,9 @@
 
 # -- I N I T --------------------------------------------------
 
-AC_INIT([Synfig Core],[1.3.4],[https://github.com/synfig/synfig/issues],[synfig])
-AC_REVISION
+AC_PREREQ([2.59])
+AC_INIT([Synfig Core],[1.3.11],[https://github.com/synfig/synfig/issues],[synfig])
+AC_REVISION()
 
 AC_CONFIG_AUX_DIR(config)
 AC_CONFIG_HEADERS([config.h])
@@ -16,19 +17,13 @@ AC_LIBLTDL_CONVENIENCE
 AC_SUBST(INCLTDL)
 AC_SUBST(LIBLTDL)
 
-API_VERSION=1.0
-
-
 AC_DEFINE(LT_SCOPE,[extern],[LibLTDL is linked staticly])
-
-
-
 
 # -- V A R I A B L E S ----------------------------------------
 
-SVN_REPOSITORY=https://synfig.svn.sourceforge.net/svnroot/synfig/synfig-core
-AC_SUBST(SVN_REPOSITORY)
-
+API_VERSION=1.0
+MODULE_DIR='${libdir}/synfig/modules'
+SYNFIGLIB_DIR=${libdir}/synfig
 
 # -- P R O G R A M S ------------------------------------------
 
@@ -38,7 +33,7 @@ AC_PROG_CXX
 AC_PROG_CPP
 AC_PROG_CXXCPP
 AC_PROG_INSTALL
-AX_CXX_COMPILE_STDCXX_11([noext], [optional])
+AX_CXX_COMPILE_STDCXX([11], [noext])
 
 AC_LANG([C++])
 
@@ -87,16 +82,6 @@ AC_CHECK_LIB(c, dlopen,
 )
 
 AC_SUBST(DYNAMIC_LD_LIBS)
-
-AC_ARG_ENABLE(half,
-	AS_HELP_STRING(--enable-half, [use OpenEXR "half" type for color]),[
-	use_openexr_half=$enableval
-],
-[
-	use_openexr_half="no"
-])
-
-
 
 AC_ARG_ENABLE(layer-profiling,
 	AS_HELP_STRING(--enable-layer-profiling, [enable layer profiling]),[
@@ -181,13 +166,15 @@ AM_CONDITIONAL(WITH_LIBDV, test $with_libdv = yes)
 # LIBAVCODEC CHECK--------------------
 
 AC_ARG_WITH(libavcodec,
-	AS_HELP_STRING(--with-libavcodec, [support libavcodec (default=no)]),[
+	AS_HELP_STRING(--without-libavcodec, [do not support libavcodec]),[
 ],[
-	with_libavcodec="no"
+	with_libavcodec="yes"
 ])
 
 if test $with_libavcodec != "no" ; then {
-	PKG_CHECK_MODULES(LIBAVCODEC, [libavcodec libavformat],[],[echo no; with_libavcodec="no"])
+	PKG_CHECK_MODULES(LIBAVCODEC, [libavcodec >= 51.42 libavformat >= 54.0 libavutil >= 52.9 libswscale >= 2.1.2],
+		[CONFIG_DEPS="$CONFIG_DEPS libavcodec libavformat libswscale"],
+		[echo no; with_libavcodec="no"])
 } ; fi
 if test $with_libavcodec = "yes" ; then {
 	AC_DEFINE(WITH_LIBAVCODEC,[],[enable libavcodec support])
@@ -196,52 +183,25 @@ if test $with_libavcodec = "yes" ; then {
 	AM_CONDITIONAL(WITH_LIBAVCODEC,false)
 } ; fi
 
-
 if test $with_libavcodec = "yes" ; then {
-
-	# Need to check both the new and old locations for the avformat header
-	# Need to save flags, add avformat flags, check headers and restore flags
+	# save flags
 	ac_save_CPPFLAGS="$CPPFLAGS"
 	ac_save_CFLAGS="$CFLAGS"
-	CPPFLAGS="${CPPFLAGS} ${LIBAVCODEC_CFLAGS}"
-	CFLAGS="${CFLAGS} ${LIBAVCODEC_CFLAGS}"
+
+	# Need to check both the new and old locations for the avformat header
+	CPPFLAGS="${ac_save_CPPFLAGS} ${LIBAVCODEC_CFLAGS}"
+	CFLAGS="${ac_save_CFLAGS} ${LIBAVCODEC_CFLAGS}"
 	AC_CHECK_HEADERS(libavformat/avformat.h avformat.h ffmpeg/avformat.h)
+
+	# Need to check both the new and old locations for the swscale header
+	CPPFLAGS="${ac_save_CPPFLAGS} ${LIBSWSCALE_CFLAGS}"
+	CFLAGS="${ac_save_CFLAGS} ${LIBSWSCALE_CFLAGS}"
+	AC_CHECK_HEADERS(libswscale/swscale.h swscale.h ffmpeg/swscale.h)
+
+	# restore flags
 	CPPFLAGS="${ac_save_CPPFLAGS}"
 	CFLAGS="${ac_save_CFLAGS}"
-
-	AC_ARG_WITH(libswscale,
-		[AS_HELP_STRING([--without-libswscale],
-			[do not support libswscale (default=auto)])],
-		[],
-		[with_libswscale="yes"]
-	)
-
-	if test $with_libswscale != "no" ; then {
-		PKG_CHECK_MODULES(LIBSWSCALE, [libswscale], [], [echo no; with_libswscale="no"])
-	} ; fi
-
-	if test $with_libswscale = "yes" ; then {
-		AC_DEFINE(WITH_LIBSWSCALE, [], [enable libswscale support])
-		CONFIG_DEPS="$CONFIG_DEPS libswscale"
-
-		# Need to check both the new and old locations for the swscale header
-		# Need to save flags, add swscale flags, check headers and restore flags
-		ac_save_CPPFLAGS="$CPPFLAGS"
-		ac_save_CFLAGS="$CFLAGS"
-		CPPFLAGS="${CPPFLAGS} ${LIBSWSCALE_CFLAGS}"
-		CFLAGS="${CFLAGS} ${LIBSWSCALE_CFLAGS}"
-		AC_CHECK_HEADERS(libswscale/swscale.h swscale.h ffmpeg/swscale.h)
-		CPPFLAGS="${ac_save_CPPFLAGS}"
-		CFLAGS="${ac_save_CFLAGS}"
-	} else {
-		AC_CHECK_LIB(avcodec, img_convert,
-			[AC_MSG_RESULT([ *** Using deprecated function img_convert.])],
-			[AC_MSG_FAILURE([Neither libswscale nor function img_convert was found.])],
-			[]
-		)
-	} ; fi
 } ; fi
-AM_CONDITIONAL(WITH_LIBSWSCALE, test "x$with_libswscale" = "xyes")
 
 
 # FREETYPE2 CHECK--------------------
@@ -300,25 +260,13 @@ AC_ARG_WITH(openexr,
 ])
 if test $with_openexr = "yes" ; then {
 	PKG_CHECK_MODULES(OPENEXR, OpenEXR,[
-		AC_DEFINE(HAVE_OPENEXR,[], [ Define if OpenEXR is available ] )
-		AM_CONDITIONAL(WITH_OPENEXR,true)
 		CONFIG_DEPS="$CONFIG_DEPS OpenEXR"
 	],
 	[
 		with_openexr="no"
 	])
 } ; fi
-if test $with_openexr = "no" ; then {
-	AM_CONDITIONAL(WITH_OPENEXR,false)
-	use_openexr_half="no"
-} ; fi
-if test $use_openexr_half = yes ; then {
-	AC_MSG_RESULT([ ** Using OpenEXR Half.])
-	CONFIG_CFLAGS="$CONFIG_CFLAGS -DUSE_HALF_TYPE"
-	OPENEXR_HALF_LIBS="-lHalf"
-} else {
-	OPENEXR_HALF_LIBS=""
-} ; fi
+AM_CONDITIONAL(WITH_OPENEXR, test $with_openexr = yes)
 
 
 # JPEG CHECK (commandline switch) ------------------------
@@ -351,8 +299,8 @@ AM_GNU_GETTEXT([external])
 # This is here so autoreconf will run autopoint
 AM_GNU_GETTEXT_VERSION([0.15])
 
-PKG_CHECK_MODULES(ETL, [ETL >= 0.05.0],,[
-	AC_MSG_ERROR([ ** You need to install the ETL (version 0.05.0 or greater).])
+PKG_CHECK_MODULES(ETL, [ETL >= 1.3.11],,[
+	AC_MSG_ERROR([ ** You need to install the ETL (version 1.3.11 or greater).])
 ])
 CONFIG_DEPS="$CONFIG_DEPS ETL"
 
@@ -460,23 +408,11 @@ PKG_CHECK_MODULES(MLTPP, mlt++,,[
 CONFIG_DEPS="$CONFIG_DEPS mlt++"
 
 AX_BOOST_BASE([1.53.0],,AC_MSG_ERROR([ ** You need to install Boost >= 1.53.0]))
-AX_BOOST_PROGRAM_OPTIONS
-if test "x$ax_cv_boost_program_options" != "xyes" ; then
-	AC_MSG_ERROR([ ** You need to install Boost program-options library])
-fi
-AX_BOOST_SYSTEM
-if test "x$ax_cv_boost_system" != "xyes" ; then
-	AC_MSG_ERROR([ ** You need to install Boost system library])
-fi
-AX_BOOST_FILESYSTEM
-if test "x$ax_cv_boost_filesystem" != "xyes" ; then
-	AC_MSG_ERROR([ ** You need to install Boost filesystem library])
-fi
-AX_BOOST_CHRONO
-if test "x$ax_cv_boost_chrono" != "xyes" ; then
-	AC_MSG_ERROR([ ** You need to install Boost chrono library])
-fi
-# Boost program options, system and filesystem libraries are just dependencies
+#AX_BOOST_SYSTEM
+#if test "x$ax_cv_boost_system" != "xyes" ; then
+#	AC_MSG_ERROR([ ** You need to install Boost system library])
+#fi
+# Boost program options and system libraries are just dependencies
 # of the synfig cli and therefore
 # not required to link against the synfig library.
 
@@ -562,98 +498,8 @@ if test $with_jpeg = "yes" ; then {
 } ; fi
 
 
-
-MODULE_DIR='${libdir}/synfig/modules'
-moduledir=$libdir/synfig/modules
 AC_SUBST(MODULE_DIR)
-SYNFIGLIB_DIR=$libdir/synfig
 AC_SUBST(SYNFIGLIB_DIR)
-
-# Check for unordered_map or hash_map headers
-AC_MSG_CHECKING([for unordered_map<int,int>::const_iterator])
-AC_COMPILE_IFELSE([
-	AC_LANG_PROGRAM([
-		[#include <unordered_map>]
-	],[
-		[std::unordered_map<int,int>::const_iterator iter;]
-	])],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE([HASH_MAP_CLASS],[HASH_MAP_NAMESPACE::unordered_map],[The template name for unordered maps.])
-	AC_DEFINE([HASH_MAP_H],[<unordered_map>],[The header file to include for unordered maps.])
-	AC_DEFINE([HASH_MAP_NAMESPACE],[std],[The namespace for unordered maps.])
-	AC_DEFINE([FUNCTIONAL_H],[<functional>],[The header file for hash<T>.])
-	AC_DEFINE([FUNCTIONAL_HASH_ON_STRING],[1],[Define to 1 if hash<T> needs to use T=String rather than T=char* to hash strings.])
-],[
-	AC_MSG_RESULT([no])
-	AC_MSG_CHECKING([for tr1/unordered_map<int,int>::const_iterator])
-	AC_COMPILE_IFELSE([
-		AC_LANG_PROGRAM([
-			[#include <tr1/unordered_map>]
-		],[
-			[std::tr1::unordered_map<int,int>::const_iterator iter;]
-		])],[
-		AC_MSG_RESULT([yes])
-		AC_DEFINE([HASH_MAP_CLASS],[HASH_MAP_NAMESPACE::unordered_map],[The template name for unordered maps.])
-		AC_DEFINE([HASH_MAP_H],[<tr1/unordered_map>],[The header file to include for unordered maps.])
-		AC_DEFINE([HASH_MAP_NAMESPACE],[std::tr1],[The namespace for unordered maps.])
-		AC_DEFINE([FUNCTIONAL_H],[<tr1/functional>],[The header file for hash<T>.])
-		AC_DEFINE([FUNCTIONAL_HASH_ON_STRING],[1],[Define to 1 if hash<T> needs to use T=String rather than T=char* to hash strings.])
-	],[
-		AC_MSG_RESULT([no])
-		AC_CHECK_HEADERS([ext/hash_map],[
-			AC_DEFINE([HASH_MAP_CLASS],[HASH_MAP_NAMESPACE::hash_map],[The template name for unordered maps.])
-			AC_DEFINE([HASH_MAP_H],[<ext/hash_map>],[The header file to include for unordered maps.])
-			AC_DEFINE([HASH_MAP_NAMESPACE],[__gnu_cxx],[The namespace for unordered maps.])
-			AC_DEFINE([FUNCTIONAL_H],[<ext/functional>],[The header file for hash<T>.])
-		],[
-			AC_MSG_ERROR([C++ compiler does not seem to support unordered containers])
-		])
-	])
-])
-
-# Check for unordered_set or hash_set headers
-AC_MSG_CHECKING([for unordered_set<int,int>::const_iterator])
-AC_COMPILE_IFELSE([
-	AC_LANG_PROGRAM([
-		[#include <unordered_set>]
-	],[
-		[std::unordered_set<int,int>::const_iterator iter;]
-	])],[
-	AC_MSG_RESULT([yes])
-	AC_DEFINE([HASH_SET_CLASS],[HASH_SET_NAMESPACE::unordered_set],[The template name for unordered sets.])
-	AC_DEFINE([HASH_SET_H],[<unordered_set>],[The header file to include for unordered sets.])
-	AC_DEFINE([HASH_SET_NAMESPACE],[std],[The namespace for unordered sets.])
-],[
-	AC_MSG_RESULT([no])
-	AC_MSG_CHECKING([for tr1/unordered_set<int,int>::const_iterator])
-	AC_COMPILE_IFELSE([
-		AC_LANG_PROGRAM([
-			[#include <tr1/unordered_set>]
-		],[
-			[std::tr1::unordered_set<int,int>::const_iterator iter;]
-		])],[
-		AC_MSG_RESULT([yes])
-		AC_DEFINE([HASH_SET_CLASS],[HASH_SET_NAMESPACE::unordered_set],[The template name for unordered sets.])
-		AC_DEFINE([HASH_SET_H],[<tr1/unordered_set>],[The header file to include for unordered sets.])
-		AC_DEFINE([HASH_SET_NAMESPACE],[std::tr1],[The namespace for unordered sets.])
-	],[
-		AC_MSG_RESULT([no])
-		AC_CHECK_HEADERS([ext/hash_set],[
-			AC_DEFINE([HASH_SET_CLASS],[HASH_SET_NAMESPACE::hash_set],[The template name for unordered sets.])
-			AC_DEFINE([HASH_SET_H],[<ext/hash_set>],[The header file to include for unordered sets.])
-			AC_DEFINE([HASH_SET_NAMESPACE],[__gnu_cxx],[The namespace for unordered sets.])
-		],[
-			AC_MSG_ERROR([C++ compiler does not seem to support unordered containers])
-		])
-	])
-])
-
-
-
-
-
-AC_CHECK_HEADERS(signal.h termios.h sys/errno.h)
-
 
 case "$host" in
 	*mingw* | *cygwin*)
@@ -675,48 +521,16 @@ esac
 # -- H E A D E R S --------------------------------------------
 
 AC_HEADER_SYS_WAIT
-AC_CHECK_HEADERS([process.h io.h fcntl.h])
+AC_CHECK_HEADERS([signal.h termios.h process.h io.h fcntl.h])
 
 # -- T Y P E S & S T R U C T S --------------------------------
 
 # -- F U N C T I O N S ----------------------------------------
 
 AC_CHECK_FUNCS([fork])
-AC_CHECK_FUNCS([kill])
 AC_CHECK_FUNCS([pipe])
 AC_CHECK_FUNCS([waitpid])
-
-AC_CHECK_FUNCS(
-	[isnan],
-	[],
-	[
-		AC_CHECK_FUNCS(
-			[_isnan]
-		)
-	]
-)
-
-AC_CHECK_FUNCS(
-	[isnanf],
-	[],
-	[
-		AC_CHECK_FUNCS(
-			[_isnanf]
-		)
-	]
-)
-
-AC_CHECK_FUNCS(
-	[floorl],
-	[],
-	[
-		AC_CHECK_FUNCS(
-			[_floorl]
-		)
-	]
-)
-
-AC_CHECK_LIB([pthread],[pthread_create])
+AC_CHECK_LIB([pthread],[pthread_create]) # TODO: used for deprecated synfig::Mutex only
 
 # -- O U T P U T ----------------------------------------------
 
@@ -749,7 +563,6 @@ AC_SUBST(LIBADD_DL)
 
 AC_SUBST(SYNFIG_LIBS)
 AC_SUBST(SYNFIG_CFLAGS)
-AC_SUBST(OPENEXR_HALF_LIBS)
 
 AC_SUBST(API_VERSION)
 
@@ -803,10 +616,10 @@ AC_OUTPUT
 echo "
 $PACKAGE_NAME v.$VERSION
 Configuration Summary
-- - - - - -
+- - - - - - - - - - - - - - - - - -
 
 Install Prefix -------------------> $prefix
-Module directory -----------------> $moduledir
+Module directory -----------------> $MODULE_DIR
 Build Platform -------------------> $build
 Host Platform --------------------> $host
 Arc Profiling --------------------> $profile_arcs
@@ -820,7 +633,6 @@ ETL_CFLAGS -----------------------> $ETL_CFLAGS
 FreeType2 ------------------------> $with_freetype
 fontconfig -----------------------> $with_fontconfig
 libavcodec -----------------------> $with_libavcodec
-libswscale -----------------------> $with_libswscale
 vImage ---------------------------> $with_vimage
 ImageMagick ----------------------> $with_imagemagick
 Magick++ -------------------------> $with_magickpp
@@ -829,7 +641,6 @@ OpenGL ---------------------------> $with_opengl
 OpenCL ---------------------------> $with_opencl
 libdv ----------------------------> $with_libdv
 OpenEXR --------------------------> $with_openexr
-Using OpenEXR's \"half\" type ------> $use_openexr_half
 
 "'$'"CXX -----------------------------> '$CXX'
 "'$'"CXXFLAGS ------------------------> '$CXXFLAGS'
@@ -846,9 +657,6 @@ Using OpenEXR's \"half\" type ------> $use_openexr_half
 "'$'"SYNFIG_CFLAGS -------------------> '$SYNFIG_CFLAGS'
 "'$'"BOOST_CPPFLAGS ------------------> '$BOOST_CPPFLAGS'
 "'$'"BOOST_LDFLAGS -------------------> '$BOOST_LDFLAGS'
-"'$'"BOOST_PROGRAM_OPTIONS_LIB -------> '$BOOST_PROGRAM_OPTIONS_LIB'
 "'$'"BOOST_SYSTEM_LIB ----------------> '$BOOST_SYSTEM_LIB'
-"'$'"BOOST_FILESYSTEM_LIB ------------> '$BOOST_FILESYSTEM_LIB'
-"'$'"BOOST_CHRONO_LIB ----------------> '$BOOST_CHRONO_LIB'
 "'$'"LIBADD_DL -----------------------> '$LIBADD_DL'
 "

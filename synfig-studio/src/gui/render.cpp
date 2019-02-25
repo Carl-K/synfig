@@ -30,23 +30,30 @@
 #	include <config.h>
 #endif
 
-#include <synfig/general.h>
+#include <cerrno>
+#include <map>
+#include <glibmm.h>
 
-#include "render.h"
-#include "app.h"
 #include <gtkmm/frame.h>
 #include <gtkmm/alignment.h>
-#include <glibmm.h>
+
+#include <ETL/stringf>
+
+#include <synfig/general.h>
 #include <synfig/target_scanline.h>
 #include <synfig/canvas.h>
+#include <synfig/soundprocessor.h>
+
+#include "app.h"
 #include "asyncrenderer.h"
+#include "docks/dockmanager.h"
+#include "docks/dock_info.h"
 #include "dialogs/dialog_ffmpegparam.h"
 #include "dialogs/dialog_spritesheetparam.h"
 
-#include <gui/localization.h>
+#include "render.h"
 
-#include <ETL/stringf>
-#include <errno.h>
+#include <gui/localization.h>
 
 #endif
 
@@ -74,7 +81,7 @@ RenderSettings::RenderSettings(Gtk::Window& parent, etl::handle<synfigapp::Canva
 	entry_antialias(adjustment_antialias,1,0),
 	toggle_single_frame(_("Render _current frame only"), true),
 	toggle_extract_alpha(_("Extract alpha"), true),
-	tparam("libx264-lossless",2000)
+	tparam("mpeg4",6000)
 {
 	tparam.sequence_separator=App::sequence_separator;
 	widget_rend_desc.show();
@@ -169,7 +176,7 @@ RenderSettings::RenderSettings(Gtk::Window& parent, etl::handle<synfigapp::Canva
 	toggle_single_frame.set_alignment(0, 0.5);
 	settings_table->attach(toggle_single_frame, 2, 3, 0, 1, Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL, 0, 0);
 	toggle_single_frame.set_active(false);
-	
+
 	toggle_extract_alpha.set_alignment(0, 0.5);
 	settings_table->attach(toggle_extract_alpha, 2, 3, 1, 2, Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL, 0, 0);
 	toggle_extract_alpha.set_active(false);
@@ -217,7 +224,7 @@ RenderSettings::set_entry_filename()
 			filename+=" ("+canvas->get_name()+')';
 	}
 
-	filename += ".png";
+	filename += ".avi";
 
 	try
 	{
@@ -226,16 +233,28 @@ RenderSettings::set_entry_filename()
 	catch(...)
 	{
 		synfig::warning("Averted crash!");
-		entry_filename.set_text("output.png");
+		entry_filename.set_text("output.avi");
 	}
 }
 
 void
 RenderSettings::on_comboboxtext_target_changed()
 {
+	std::map<std::string,std::string> ext = {{"bmp",".bmp"}, {"cairo_png",".png"},{"dv",".dv"},
+					{"ffmpeg",".avi"},{"gif",".gif"},{"imagemagick",".png"}, {"jpeg",".jpg"},
+					{"magick++",".gif"},{"mng",".mng"},{"openexr",".exr"},{"png",".png"},
+					{"png-spritesheet",".png"},{"ppm",".ppm"}, {"yuv420p",".yuv"}, {"libav",".avi"}};
 	int i = comboboxtext_target.get_active_row_number();
 	if (i < 0 || i >= (int)target_names.size()) return;
 	if (target_name == target_names[i]) return;
+	auto itr = ext.find(target_names[i]); 
+    // check if target_name is there in map
+    if(itr != ext.end())
+	{
+		String filename = entry_filename.get_text();
+		String newfilename = filename.substr(0,filename.find_last_of('.'))+itr->second;
+		entry_filename.set_text(newfilename);
+	}
 	set_target(target_names[i]);
 }
 
@@ -250,7 +269,7 @@ RenderSettings::set_target(synfig::String name)
 {
 	target_name=name;
 	//TODO: Replace this condition
-	tparam_button->set_sensitive(target_name.compare("ffmpeg") && target_name.compare("png-spritesheet")?false:true);
+	tparam_button->set_sensitive(!(target_name.compare("ffmpeg") && target_name.compare("png-spritesheet")));
 }
 
 void
@@ -266,9 +285,9 @@ RenderSettings::on_targetparam_pressed()
 {
 	Dialog_TargetParam * dialogtp;
 	//TODO: Replace this conditions too
-	if (target_name.compare("ffmpeg") == 0)
+	if (!target_name.compare("ffmpeg"))
 		dialogtp = new Dialog_FFmpegParam (*this);
-	else if (target_name.compare("png-spritesheet") == 0)
+	else if (!target_name.compare("png-spritesheet"))
 		dialogtp = new Dialog_SpriteSheetParam (*this);
 	else
 		return;
@@ -313,7 +332,7 @@ RenderSettings::on_render_pressed()
 				synfig::info("unknown extension");
 			}
 		}
-		catch(std::runtime_error x)
+		catch(std::runtime_error& x)
 		{
 			canvas_interface_->get_ui_interface()->error(_("Unable to determine proper target from filename."));
 			return;
@@ -327,30 +346,38 @@ RenderSettings::on_render_pressed()
 	}
 
 	hide();
-	
+
 	render_passes.clear();
 	if (toggle_extract_alpha.get_active())
 	{
 		String filename_alpha(filename_sans_extension(filename)+"-alpha"+filename_extension(filename));
-		
+
 		render_passes.push_back(make_pair(TARGET_ALPHA_MODE_EXTRACT, filename_alpha));
 		render_passes.push_back(make_pair(TARGET_ALPHA_MODE_REDUCE, filename));
-		
+
 	} else {
 		render_passes.push_back(make_pair(TARGET_ALPHA_MODE_KEEP, filename));
 	}
 	
-	submit_next_render_pass();
+	App::dock_info_->set_n_passes_requested(render_passes.size());
+	App::dock_info_->set_n_passes_pending(render_passes.size());
+	App::dock_info_->set_render_progress(0.0);
+	App::dock_manager->find_dockable("info").present(); //Bring Dock_Info to front
 	
+	submit_next_render_pass();
+
 	return;
 }
-	
+
 void
 RenderSettings::submit_next_render_pass()
 {
 	if (render_passes.size()>0) {
 		pair<TargetAlphaMode,String> pass_info = render_passes.back();
 		render_passes.pop_back();
+
+		App::dock_info_->set_n_passes_pending(render_passes.size()); //! Decrease until 0
+		App::dock_info_->set_render_progress(0.0); //For this pass
 		
 		TargetAlphaMode pass_alpha_mode = pass_info.first;
 #ifdef _WIN32
@@ -358,7 +385,7 @@ RenderSettings::submit_next_render_pass()
 #else
 		String pass_filename = pass_info.second;
 #endif
-		
+
 		Target::Handle target=Target::create(calculated_target_name,pass_filename, tparam);
 		if(!target)
 		{
@@ -380,7 +407,7 @@ RenderSettings::submit_next_render_pass()
 		// If we are to only render the current frame
 		if(toggle_single_frame.get_active())
 			rend_desc.set_time(canvas_interface_->get_time());
-	
+
 		target->set_rend_desc(&rend_desc);
 		target->set_quality((int)adjustment_quality->get_value());
 		if( !target->init(canvas_interface_->get_ui_interface().get()) ){
@@ -391,7 +418,7 @@ RenderSettings::submit_next_render_pass()
 			target->set_alpha_mode(pass_alpha_mode);
 
 		canvas_interface_->get_ui_interface()->task(_("Rendering ")+pass_filename);
-	
+
 		/*
 		if(async_renderer)
 		{
@@ -427,8 +454,18 @@ RenderSettings::on_finished()
 
 	canvas_interface_->get_ui_interface()->task(text);
 	canvas_interface_->get_ui_interface()->amount_complete(0,10000);
+
+	bool really_finished = (render_passes.size() == 0); //Must be checked BEFORE submit_next_render_pass();
 	
 	submit_next_render_pass();
+
+	if (really_finished) { // Because of multi-pass render
+		if (App::use_render_done_sound && App::sound_render_done) {
+			App::sound_render_done->set_position(Time());
+			App::sound_render_done->set_playing(true);
+		}
+		App::dock_info_->set_render_progress(1.0);
+	}
 }
 
 void

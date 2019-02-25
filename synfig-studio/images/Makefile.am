@@ -48,7 +48,7 @@ EXTRA_DIST = \
 	reset_colors_icon.sif \
 	swap_colors_icon.sif \
 	synfig_icon.sif \
-	synfig_icon.svg \
+	org.synfig.SynfigStudio.svg \
 	valuenode_icon.sif \
 	wallpaper.sif \
 	rename_icon.sif \
@@ -69,6 +69,7 @@ EXTRA_DIST = \
 	decr_resolution_icon.sif \
 	render_options_icon.sif \
 	preview_options_icon.sif \
+	background_rendering_icon.sif \
 	action_set_layer_description_icon.sif \
 	action_add_to_set_icon.sif \
 	action_remove_from_set_icon.sif \
@@ -219,6 +220,9 @@ IMAGES = \
 	animate_stop_icon.$(EXT) \
 	animate_pause_icon.$(EXT) \
 	animate_loop_icon.$(EXT) \
+	animate_bounds_icon.$(EXT) \
+	animate_bound_lower_icon.$(EXT) \
+	animate_bound_upper_icon.$(EXT) \
 	animate_mode_off_icon.$(EXT) \
 	animate_mode_on_icon.$(EXT) \
 	\
@@ -240,6 +244,7 @@ IMAGES = \
 	decr_resolution_icon.$(EXT) \
 	render_options_icon.$(EXT) \
 	preview_options_icon.$(EXT) \
+	background_rendering_icon.$(EXT) \
 	action_set_layer_description_icon.$(EXT) \
 	action_add_to_set_icon.$(EXT) \
 	action_remove_from_set_icon.$(EXT) \
@@ -412,9 +417,13 @@ image_DATA = $(IMAGES) $(ICONS)
 
 all: $(IMAGES)
 
-SUFFIXES = .sif .tif .png
-
+SUFFIXES = .sif .tif .png .sifz .bmp
 #.SUFFIXES: $(SUFFIXES)
+
+.sifz.ico:
+	bash ../build_tools/sif2ico.sh $<
+	echo "  File \"images\\$@\"" >>./icons.nsh
+	echo "  Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unicons.nsh
 
 .sif.ico:
 	bash ../build_tools/sif2ico.sh $<
@@ -424,17 +433,28 @@ SUFFIXES = .sif .tif .png
 clean-local:
 	$(RM) -r $(CLEANDIRS)
 
-.sif.bmp:
-	$(SYNFIG) -q $< -o $@.png --time 0
-	convert $@.png $@
-	rm -f $@.png
+#.sif.$(EXT) .sifz.$(EXT) .sif.bmp .sifz.bmp:
+#%.bmp: %.sif %.sifz
+#	$(SYNFIG) -q $< -o $@ --time 0
+#	echo "  File \"images\\$@\"" >>./images.nsh
+#	echo "  Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
+#
+.sifz.bmp:
+	$(SYNFIG) -q $< -o $@ --time 0
+	echo "  File \"images\\$@\"" >>./images.nsh
+	echo "  Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
 
-.sif.$(EXT):
+.sif.bmp:
 	$(SYNFIG) -q $< -o $@ --time 0
 	echo "  File \"images\\$@\"" >>./images.nsh
 	echo "  Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
 
 .sifz.$(EXT):
+	$(SYNFIG) -q $< -o $@ --time 0
+	echo "  File \"images\\$@\"" >>./images.nsh
+	echo "  Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
+
+.sif.$(EXT):
 	$(SYNFIG) -q $< -o $@ --time 0
 	echo "  File \"images\\$@\"" >>./images.nsh
 	echo "  Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
@@ -506,6 +526,21 @@ animate_pause_icon.$(EXT): $(srcdir)/framedial_icons.sif
 
 animate_loop_icon.$(EXT): $(srcdir)/framedial_icons.sif
 	$(SYNFIG) -q $< -o $@ --time 9
+	echo " File \"images\\$@\"" >>./images.nsh
+	echo " Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
+
+animate_bounds_icon.$(EXT): $(srcdir)/framedial_icons.sif
+	$(SYNFIG) -q $< -o $@ --time 10
+	echo " File \"images\\$@\"" >>./images.nsh
+	echo " Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
+
+animate_bound_lower_icon.$(EXT): $(srcdir)/framedial_icons.sif
+	$(SYNFIG) -q $< -o $@ --time 11
+	echo " File \"images\\$@\"" >>./images.nsh
+	echo " Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
+
+animate_bound_upper_icon.$(EXT): $(srcdir)/framedial_icons.sif
+	$(SYNFIG) -q $< -o $@ --time 12
 	echo " File \"images\\$@\"" >>./images.nsh
 	echo " Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
 
@@ -605,12 +640,8 @@ action_doc_redo_icon.$(EXT): $(srcdir)/action_doc_icons.sif
 	echo " Delete \"\$$INSTDIR\\share\\pixmaps\\$@\"" >>./unimages.nsh
 
 if DEVELOPMENT_SNAPSHOT
-splash_screen_development.sif: $(srcdir)/splash_screen_development.sif.in $(top_srcdir)/autorevision.h
-	export commit_id=`git log --no-color -1 | head -n 1 | cut -f 2 -d ' ' | cut -c -6` && \
-	export commit_date=`git show --pretty=format:%ci HEAD |  head -c 10` && \
-	export branch=`git branch -a --no-color --contains HEAD | sed -e s/\*\ // | sed -e s/\(no\ branch\)// | tr '\n' ' ' | tr -s ' ' | sed s/^' '//` && \
-	export branch=`echo $$branch | egrep origin/master > /dev/null && echo master || echo $$branch | cut -d ' ' -f 1 | sed -e 's/.*\///'` && \
-	sed "s|%branch%|$$branch|" $< | sed "s|%commit_date%|$$commit_date|" | sed "s|%commit_id%|$$commit_id|" | sed "s|synfig_icon.sif#|$(srcdir)/synfig_icon.sif#|" > $@
+splash_screen_development.sif: $(srcdir)/splash_screen_development.sif.in $(top_builddir)/autorevision.h
+	$(srcdir)/splash_screen_development.sh $@ "$(srcdir)"
 splash_screen.$(EXT): splash_screen_development.sif
 	$(SYNFIG) -q $< -o $@ --time 0
 	echo "  File \"images\\$@\"" >>./images.nsh
@@ -682,7 +713,7 @@ icons128_DATA = 128x128/synfig_icon.$(EXT)
 +icons256_DATA = 256x256/synfig_icon.$(EXT)
 
 iconsscalabledir = $(datadir)/icons/hicolor/scalable/apps
-iconsscalable_DATA = synfig_icon.svg
+iconsscalable_DATA = org.synfig.SynfigStudio.svg
 
 endif
 endif

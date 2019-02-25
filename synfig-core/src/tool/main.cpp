@@ -35,13 +35,12 @@
 #include <string>
 #include <list>
 
-#include <boost/program_options/options_description.hpp>
-#include <boost/program_options/parsers.hpp>
-#include <boost/program_options/variables_map.hpp>
+//#include <boost/program_options/options_description.hpp>
+//#include <boost/program_options/parsers.hpp>
+//#include <boost/program_options/variables_map.hpp>
 #include <boost/tokenizer.hpp>
 #include <boost/token_functions.hpp>
-#include <boost/filesystem.hpp>
-#include <boost/format.hpp>
+//#include <boost/format.hpp>
 
 #include <glibmm.h>
 
@@ -67,34 +66,42 @@
 #include "joblistprocessor.h"
 #include "printing_functions.h"
 
-#include "named_type.h"
+//#include "named_type.h"
 #endif
 
-namespace po=boost::program_options;
-namespace bfs=boost::filesystem;
+//namespace po=boost::program_options;
 
 std::string _appendAlphaToFilename(std::string input_filename)
 {
-    bfs::path filename(input_filename);
+
+	std::size_t found = input_filename.rfind(".");
+	if (found == std::string::npos) return input_filename + "-alpha"; // extension not found, just add to the end
+	
+	return input_filename.substr(0, found) + "-alpha" + input_filename.substr(found);
+
+    /*bfs::path filename(input_filename);
     bfs::path alpha_filename(filename.stem().string() + "-alpha" +
         filename.extension().string());
-    return bfs::path(filename.parent_path() / alpha_filename).string();
+    return bfs::path(filename.parent_path() / alpha_filename).string();*/
 }
 
 int main(int argc, char* argv[])
 {
 	setlocale(LC_ALL, "");
+	Glib::init(); // need to use Gio functions before app is started
 
 	SynfigToolGeneralOptions::create_singleton_instance(argv[0]);
 
-	bfs::path binary_path =
+	std::string binary_path =
 		SynfigToolGeneralOptions::instance()->get_binary_path();
 
 #ifdef ENABLE_NLS
-	boost::filesystem::path locale_path =
-		binary_path.parent_path().parent_path();
-	locale_path = locale_path/"share"/"locale";
-	bindtextdomain("synfig", Glib::locale_from_utf8(locale_path.string()).c_str() );
+	/*bst::filesystem::path locale_path =
+		binary_path.parent_path().parent_path();*/
+	std::string locale_path = get_absolute_path(binary_path + "../../share/locale");
+	//locale_path = locale_path/"share"/"locale";
+	//bindtextdomain("synfig", Glib::locale_from_utf8(locale_path.string()).c_str() );
+	bindtextdomain("synfig", Glib::locale_from_utf8(locale_path).c_str() );
 	bind_textdomain_codeset("synfig", "UTF-8");
 	textdomain("synfig");
 #endif
@@ -113,7 +120,7 @@ int main(int argc, char* argv[])
 		}
 
 
-		named_type<std::string>* target_arg_desc = new named_type<std::string>("module");
+/*		named_type<std::string>* target_arg_desc = new named_type<std::string>("module");
 		named_type<int>* width_arg_desc = new named_type<int>("NUM");
 		named_type<int>* height_arg_desc = new named_type<int>("NUM");
 		named_type<int>* span_arg_desc = new named_type<int>("NUM");
@@ -147,7 +154,7 @@ int main(int argc, char* argv[])
             ("height,h", height_arg_desc, _("Set the image height in pixels (Use zero for file default)"))
             ("span,s", span_arg_desc, _("Set the diagonal size of image window (Span)"))
             ("antialias,a", antialias_arg_desc, _("Set antialias amount for parametric renderer."))
-            ("quality,Q", quality_arg_desc->default_value(DEFAULT_QUALITY), (boost::format(_("Specify image quality for accelerated renderer (Default: %d)")) % DEFAULT_QUALITY).str().c_str())
+            ("quality,Q", quality_arg_desc->default_value(DEFAULT_QUALITY), etl::strprintf(_("Specify image quality for accelerated renderer (Default: %d)"), DEFAULT_QUALITY).c_str())
             ("gamma,g", gamma_arg_desc, _("Gamma"))
             ("threads,T", threads_arg_desc, _("Enable multithreaded renderer using the specified number of threads"))
             ("input-file,i", input_file_arg_desc, _("Specify input filename"))
@@ -241,38 +248,41 @@ int main(int argc, char* argv[])
         try{
             po::store(po::command_line_parser(argc, argv).options(po_all).
                     positional(po_positional).run(), vm);
-        }catch(std::exception &e)
+        }catch(std::exception& e)
         {
             std::cout << std::endl << e.what() << std::endl;
             std::cout << _("Try 'synfig --help' for more information") << std::endl;
             return SYNFIGTOOL_UNKNOWNARGUMENT;
-        }
+        }*/
 
-        OptionsProcessor op(vm, po_visible);
+        //OptionsProcessor op(vm, po_visible);
+		SynfigCommandLineParser parser;
+		parser.parse(argc, argv);
 
         // Switch options ---------------------------------------------
-        op.process_settings_options();
+        parser.process_settings_options();
 
 #ifdef _DEBUG
 		// DEBUG options ----------------------------------------------
-		op.process_debug_options();
+		parser.process_debug_options();
 #endif
 
 		// TODO: Optional load of main only if needed. i.e. not needed to display help
 		// Synfig Main initialization needs to be after verbose and
 		// before any other where it's used
-		Progress p(binary_path.string().c_str());
-		synfig::Main synfig_main(binary_path.parent_path().string(), &p);
+		Progress p(binary_path.c_str());
+		//synfig::Main synfig_main(binary_path.parent_path().string(), &p);
+		synfig::Main synfig_main(get_absolute_path(binary_path + "/.."), &p);
 
         // Info options -----------------------------------------------
-        op.process_info_options();
+        parser.process_info_options();
 
 		std::list<Job> job_list;
 
 		// Processing --------------------------------------------------
 		Job job;
-		job = op.extract_job();
-		job.desc = job.canvas->rend_desc() = op.extract_renddesc(job.canvas->rend_desc());
+		job = parser.extract_job();
+		job.desc = job.canvas->rend_desc() = parser.extract_renddesc(job.canvas->rend_desc());
 
 		if (job.extract_alpha) {
 			job.alpha_mode = synfig::TARGET_ALPHA_MODE_REDUCE;
@@ -284,7 +294,7 @@ int main(int argc, char* argv[])
 			job_list.push_front(job);
 		}
 
-		process_job_list(job_list, op.extract_targetparam());
+		process_job_list(job_list, parser.extract_targetparam());
 
 		return SYNFIGTOOL_OK;
 

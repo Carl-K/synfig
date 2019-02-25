@@ -50,6 +50,7 @@
 #include "layers/layer_composite.h"
 #include "layers/layer_bitmap.h"
 #include "layers/layer_duplicate.h"
+#include "layers/layer_filtergroup.h"
 #include "layers/layer_group.h"
 #include "layers/layer_mime.h"
 #include "layers/layer_motionblur.h"
@@ -63,7 +64,9 @@
 #include "valuenodes/valuenode_const.h"
 
 #include "rendering/common/task/tasklayer.h"
-#include "rendering/common/task/tasksurfaceempty.h"
+
+#include "importer.h"
+#include <atomic>
 
 #endif
 
@@ -77,17 +80,18 @@ using namespace synfig;
 
 static Layer::Book* _layer_book;
 
-struct _LayerCounter
+static struct _LayerCounter
 {
-	static int counter;
+	std::atomic<int> counter;
+	_LayerCounter(): counter(0) {}
 	~_LayerCounter()
 	{
-		if(counter)
-			synfig::error("%d layers not yet deleted!",counter);
+		if (counter)
+			synfig::error("%d layers not yet deleted!", (int)counter);
 	}
 } _layer_counter;
 
-int _LayerCounter::counter(0);
+//int _LayerCounter::counter(0);
 
 /* === P R O C E D U R E S ================================================= */
 
@@ -112,7 +116,7 @@ Layer::subsys_init()
 	synfig::Layer::book() [synfig::String(class::name__)] =		\
 		BookEntry(class::create,								\
 				  class::name__,								\
-				  dgettext("synfig", class::local_name__),		\
+				   _(class::local_name__),		\
 				  class::category__,							\
 				  class::cvs_id__,								\
 				  class::version__)
@@ -128,6 +132,7 @@ Layer::subsys_init()
 
 	INCLUDE_LAYER(Layer_SolidColor);
 		LAYER_ALIAS(Layer_SolidColor,	"solid_color");
+	INCLUDE_LAYER(Layer_FilterGroup);
 	INCLUDE_LAYER(Layer_Group);
 		LAYER_ALIAS(Layer_Group,		"paste_canvas");
 		LAYER_ALIAS(Layer_Group,		"PasteCanvas");
@@ -164,7 +169,7 @@ Layer::Layer():
 	time_mark(Time::end()),
 	outline_grow_mark(0.0)
 {
-	_LayerCounter::counter++;
+	_layer_counter.counter++;
 	SET_INTERPOLATION_DEFAULTS();
 	SET_STATIC_DEFAULTS();
 }
@@ -183,7 +188,9 @@ synfig::Layer::create(const String &name)
 
 synfig::Layer::~Layer()
 {
-	_LayerCounter::counter--;
+	if (monitor_connection) monitor_connection.disconnect(); // disconnect signal handler
+
+	_layer_counter.counter--;
 
 	while(!dynamic_param_list_.empty())
 	{
@@ -609,9 +616,21 @@ Layer::set_time(IndependentContext context, Time time)const
 }
 
 void
+Layer::load_resources(IndependentContext context, Time time)const
+{
+	load_resources_vfunc(context, time);
+}
+
+void
 Layer::set_time_vfunc(IndependentContext context, Time time)const
 {
 	context.set_time(time);
+}
+
+void
+Layer::load_resources_vfunc(IndependentContext context, Time time)const
+{
+	context.load_resources(time);
 }
 
 void
@@ -844,7 +863,6 @@ Layer::accelerated_render(Context context,Surface *surface,int quality, const Re
 	--context;
 
 	return render(context,target,desc,cb);
-	//return render_threaded(context,target,desc,cb,2);
 }
 
 
@@ -913,8 +931,7 @@ Layer::build_rendering_task_vfunc(Context context)const
 rendering::Task::Handle
 Layer::build_rendering_task(Context context)const
 {
-	rendering::Task::Handle task = build_rendering_task_vfunc(context);
-	return task ? task : rendering::Task::Handle(new rendering::TaskSurfaceEmpty());
+	return build_rendering_task_vfunc(context);
 }
 
 String
@@ -1037,3 +1054,32 @@ Layer::get_string()const
 void
 Layer::fill_sound_processor(SoundProcessor & /* soundProcessor */) const
 	{ }
+
+using Glib::RefPtr;
+
+void Layer::on_file_changed(const RefPtr<Gio::File> &/*file*/, const RefPtr<Gio::File> &/*other_file*/, Gio::FileMonitorEvent event) {
+	if (event == Gio::FILE_MONITOR_EVENT_CHANGES_DONE_HINT)
+	{
+		synfig::warning("file changed! (" + monitored_path + ")");
+		set_param("filename", ValueBase("")); // first clear filename to force image reload
+		Importer::forget(get_canvas()->get_file_system()->get_identifier(monitored_path)); // clear file in list of loaded files
+		set_param("filename", ValueBase(monitored_path));
+		get_canvas()->signal_changed()();
+	}
+}
+
+bool Layer::monitor(const std::string& path) { // append file monitor (returns true on success, false on fail)
+	if (file_monitor)
+	{
+		synfig::warning("File monitor for file '" + path + "' is already attached!");
+		return false;
+	}
+
+	RefPtr<Gio::File> file = Gio::File::create_for_path(path);
+	file_monitor = file->monitor_file(); // defaults to Gio::FileMonitorFlags::FILE_MONITOR_NONE
+	monitor_connection = file_monitor->signal_changed().connect(sigc::mem_fun(*this, &Layer::on_file_changed));
+	monitored_path = path;
+	synfig::info("File monitor attached to file: (" + path + ")");
+
+	return true;
+}

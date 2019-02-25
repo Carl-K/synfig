@@ -422,7 +422,7 @@ StateBrush_Context::BrushConfig::load(const String &filename)
 
 	const char *pos = buffer;
 	if (pos != NULL) while(read_row(&pos)) { }
-	free(buffer);
+	if (buffer) delete[] buffer;
 	this->filename = filename;
 }
 
@@ -507,7 +507,7 @@ StateBrush_Context::save_settings()
 StateBrush_Context::StateBrush_Context(CanvasView* canvas_view):
 	canvas_view_(canvas_view),
 	is_working(*canvas_view),
-	push_state(get_work_area()),
+	push_state(*get_work_area()),
 	selected_brush_button(NULL),
 	settings(synfigapp::Main::get_selected_input_device()->settings()),
 	eraser_checkbox(_("Eraser"))
@@ -778,17 +778,15 @@ StateBrush_Context::event_mouse_down_handler(const Smach::event& x)
 					get_canvas_interface()
 						->get_instance()
 						->generate_new_name(
-								layer,
-								get_canvas(),
-								get_canvas()->get_file_system(),
-								description,
-								filename,
-								filename_param );
+							layer,
+							description,
+							filename,
+							filename_param );
 
 					// create and save surface
 					get_canvas_interface()
 						->get_instance()
-						->save_surface(layer->get_surface(), filename);
+						->save_surface(layer->rendering_surface, filename);
 
 					selected_layer->set_param("filename", filename_param);
 					selected_layer->set_description(description);
@@ -815,8 +813,8 @@ StateBrush_Context::event_mouse_down_handler(const Smach::event& x)
 					Real diff = max_rgb-min_rgb;
 
 					Real val = max_rgb;
-					Real sat = max_rgb != 0 ? 1.0 - (min_rgb / max_rgb) : 0;
-					Real hue = max_rgb == min_rgb ?
+					Real sat = fabs(max_rgb) > epsilon ? 1.0 - (min_rgb / max_rgb) : 0;
+					Real hue = fabs(diff) <= epsilon ?
 							0 : max_rgb == r ?
 								60.0 * fmod ((g - b)/(diff), 6.0) : max_rgb == g ?
 									60.0 * (((b - r)/(diff))+2.0) : 60.0 * (((r - g)/(diff))+4.0);

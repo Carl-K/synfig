@@ -1823,9 +1823,9 @@ CanvasParser::parse_animated(xmlpp::Element *element,Canvas::Handle canvas)
 				waypoint->set_after(parse_interpolation(child,"after"));
 			}
 			}
-			catch(Exception::BadTime x)
+			catch(Exception::BadTime& x)
 			{
-				warning(child,x.what());
+				warning(child, x.what());
 			}
 			continue;
 
@@ -1990,15 +1990,15 @@ CanvasParser::parse_linkable_value_node(xmlpp::Element *element,Canvas::Handle c
 
 				// printf("  <%s> set link %d (%s) using exported value\n", element->get_name().c_str(), index, name.c_str());
 			}
-			catch (Exception::BadLinkName)
+			catch (Exception::BadLinkName&)
 			{
 				warning(element, strprintf("Bad link name '%s'", name.c_str()));
 			}
-			catch(Exception::IDNotFound)
+			catch(Exception::IDNotFound&)
 			{
 				error(element,"Unable to resolve " + id);
 			}
-			catch(Exception::FileNotFound)
+			catch(Exception::FileNotFound&)
 			{
 				error(element,"Unable to open file referenced in " + id);
 			}
@@ -2088,7 +2088,7 @@ CanvasParser::parse_linkable_value_node(xmlpp::Element *element,Canvas::Handle c
 
 				// printf("  <%s> set link %d (%s) using inline value\n", element->get_name().c_str(), index, child_name.c_str());
 			}
-			catch(Exception::BadLinkName)
+			catch(Exception::BadLinkName&)
 			{
 				warning(child, strprintf("Bad link name for <%s>", element->get_name().c_str()));
 			}
@@ -2270,7 +2270,7 @@ CanvasParser::parse_static_list(xmlpp::Element *element,Canvas::Handle canvas)
 				{
 					list_entry=canvas->surefind_value_node(id);
 				}
-				catch(Exception::IDNotFound)
+				catch(Exception::IDNotFound&)
 				{
 					error(child,"\"use\" attribute in <entry> references unknown ID -- "+id);
 					continue;
@@ -2533,7 +2533,7 @@ CanvasParser::parse_dynamic_list(xmlpp::Element *element,Canvas::Handle canvas)
 					if(PlaceholderValueNode::Handle::cast_dynamic(list_entry.value_node))
 						throw Exception::IDNotFound("parse_dynamic_list()");
 				}
-				catch(Exception::IDNotFound)
+				catch(Exception::IDNotFound&)
 				{
 					error(child,"\"use\" attribute in <entry> references unknown ID -- "+id);
 					continue;
@@ -2705,13 +2705,13 @@ CanvasParser::parse_value_node(xmlpp::Element *element,Canvas::Handle canvas)
 		// If there is already a value_node in the list
 		// with the same ID, then that is an error
 		try { canvas->add_value_node(value_node,id); }
-		catch(Exception::BadLinkName)
+		catch (Exception::BadLinkName&)
 		{
 			warning(element,strprintf(_("Bad ID \"%s\""),id.c_str()));
 			printf("%s:%d parse_value_node done bad id\n", __FILE__, __LINE__);
 			return value_node;
 		}
-		catch(Exception::IDAlreadyExists)
+		catch (Exception::IDAlreadyExists&)
 		{
 			error(element,strprintf(_("Duplicate ID \"%s\""),id.c_str()));
 			printf("%s:%d parse_value_node done dup id\n", __FILE__, __LINE__);
@@ -2812,7 +2812,7 @@ CanvasParser::parse_layer(xmlpp::Element *element,Canvas::Handle canvas)
 		layer->set_exclude_from_rendering(element->get_attribute("exclude_from_rendering")->get_value()=="false"?false:true);
 
 	// Load old groups
-	etl::handle<Layer_PasteCanvas> layer_pastecanvas = etl::handle<Layer_PasteCanvas>::cast_dynamic(layer);
+	etl::handle<Layer_PasteCanvas> layer_pastecanvas = etl::handle<Layer_Group>::cast_dynamic(layer);
 	bool old_pastecanvas = layer_pastecanvas && version=="0.1";
 	ValueNode::Handle origin_node;
 	ValueNode_Composite::Handle transformation_node;
@@ -2937,7 +2937,7 @@ CanvasParser::parse_layer(xmlpp::Element *element,Canvas::Handle canvas)
 
 					if (!processed) layer->connect_dynamic_param(param_name,value_node);
     			}
-				catch(Exception::IDNotFound)
+				catch(Exception::IDNotFound&)
 				{
 					error(child,strprintf(_("Unknown ID (%s) referenced in parameter \"%s\""),str.c_str(), param_name.c_str()));
 				}
@@ -2994,6 +2994,7 @@ CanvasParser::parse_layer(xmlpp::Element *element,Canvas::Handle canvas)
 				ValueNode::Handle node = value_node ? value_node : ValueNode_Const::create(data,canvas);
 				if (param_name == "origin")
 				{
+					// ice0: check here 
 					if (!is_const) origin_const = false;
 					offset_node->set_link("lhs", node);
 				}
@@ -3506,12 +3507,12 @@ CanvasParser::parse_from_file_as(const FileSystem::Identifier &identifier,const 
 			throw runtime_error(String("  * ") + _("Can't find linked file") + " \"" + identifier.filename + "\"");
 		}
 	}
-	catch(Exception::BadLinkName) { synfig::error("BadLinkName Thrown"); }
-	catch(Exception::BadType) { synfig::error("BadType Thrown"); }
-	catch(Exception::FileNotFound) { synfig::error("FileNotFound Thrown"); }
-	catch(Exception::IDNotFound) { synfig::error("IDNotFound Thrown"); }
-	catch(Exception::IDAlreadyExists) { synfig::error("IDAlreadyExists Thrown"); }
-	catch(xmlpp::internal_error x)
+	catch(Exception::BadLinkName&) { synfig::error("BadLinkName Thrown"); }
+	catch(Exception::BadType&) { synfig::error("BadType Thrown"); }
+	catch(Exception::FileNotFound&) { synfig::error("FileNotFound Thrown"); }
+	catch(Exception::IDNotFound&) { synfig::error("IDNotFound Thrown"); }
+	catch(Exception::IDAlreadyExists&) { synfig::error("IDAlreadyExists Thrown"); }
+	catch(xmlpp::internal_error &x)
 	{
 		if (!strcmp(x.what(), "Couldn't create parsing context"))
 			throw runtime_error(String("  * ") + _("Can't open file") + " \"" + identifier.filename + "\"");
@@ -3562,12 +3563,12 @@ CanvasParser::parse_as(xmlpp::Element* node,String &errors)
 			return canvas;
 		}
 	}
-	catch(Exception::BadLinkName) { synfig::error("BadLinkName Thrown"); }
-	catch(Exception::BadType) { synfig::error("BadType Thrown"); }
-	catch(Exception::FileNotFound) { synfig::error("FileNotFound Thrown"); }
-	catch(Exception::IDNotFound) { synfig::error("IDNotFound Thrown"); }
-	catch(Exception::IDAlreadyExists) { synfig::error("IDAlreadyExists Thrown"); }
-	catch(xmlpp::internal_error x)
+	catch(Exception::BadLinkName&) { synfig::error("BadLinkName Thrown"); }
+	catch(Exception::BadType&) { synfig::error("BadType Thrown"); }
+	catch(Exception::FileNotFound&) { synfig::error("FileNotFound Thrown"); }
+	catch(Exception::IDNotFound&) { synfig::error("IDNotFound Thrown"); }
+	catch(Exception::IDAlreadyExists&) { synfig::error("IDAlreadyExists Thrown"); }
+	catch(xmlpp::internal_error &x)
 	{
 		if (!strcmp(x.what(), "Couldn't create parsing context"))
 			throw runtime_error(String("  * ") + _("Can't open file") + " \"" + "\"");

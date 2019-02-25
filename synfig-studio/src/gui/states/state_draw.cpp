@@ -601,7 +601,7 @@ StateDraw_Context::increment_id()
 StateDraw_Context::StateDraw_Context(CanvasView* canvas_view):
 	canvas_view_(canvas_view),
 	is_working(*canvas_view),
-	push_state(get_work_area()),
+	push_state(*get_work_area()),
 	loop_(false),
 	settings(synfigapp::Main::get_selected_input_device()->settings()),
 	opacity_hscl(0.0f, 1.0125f, 0.0125f),
@@ -883,7 +883,8 @@ StateDraw_Context::StateDraw_Context(CanvasView* canvas_view):
 	options_table.set_row_spacings(GAP); // row gap
 	options_table.set_row_spacing(0, GAP*2); // the gap between first and second row.
 	options_table.set_row_spacing(2, 1); // row gap between label and icon of layer type
-	options_table.set_row_spacing(19, 0); // the final row using border width of table
+	//options_table.set_row_spacing(19, 0); // the final row using border width of table
+	options_table.set_margin_bottom(0);
 
 	options_table.show_all();
 
@@ -1068,7 +1069,7 @@ StateDraw_Context::event_stroke(const Smach::event& x)
 
 	if(nested==0)
 	{
-		DirtyTrap dirty_trap(get_work_area());
+		WorkArea::DirtyTrap dirty_trap(*get_work_area());
 		Smach::event_result result;
 		result = process_stroke(event.stroke_data, event.width_data, (event.modifier&Gdk::CONTROL_MASK) || (event.modifier&Gdk::BUTTON2_MASK));
 		process_queue();
@@ -1966,12 +1967,11 @@ StateDraw_Context::new_region(std::list<synfig::BLinePoint> bline, synfig::Real 
 		}
 	}
 
-	if(!value_node_bline)
-		if(vertex_list.size()<=2)
-		{
-			synfig::info(__FILE__":%d: Vertex list too small to make region.",__LINE__);
-			return Smach::RESULT_OK;
-		}
+	if(!value_node_bline && vertex_list.size() <= 2)
+	{
+		synfig::info(__FILE__":%d: Vertex list too small to make region.",__LINE__);
+		return Smach::RESULT_OK;
+	}
 
 	// Now we need to clean the list of vertices up
 	// a bit. This includes inserting missing vertices

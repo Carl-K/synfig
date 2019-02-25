@@ -41,7 +41,7 @@ OTHER_HH = \
 	compview.h \
 	eventkey.h \
 	smach.h \
-	adjust_window.h \
+	timemodel.h \
 	app.h \
 	asyncrenderer.h \
 	audiocontainer.h \
@@ -64,10 +64,11 @@ OTHER_HH = \
 	valuelink.h \
 	workarea.h \
 	main_win32.h \
-	mainwindow.h
+	mainwindow.h \
+	helpers.h
 
 OTHER_CC = \
-	adjust_window.cpp \
+	timemodel.cpp \
 	app.cpp \
 	asyncrenderer.cpp \
 	audiocontainer.cpp \
@@ -89,7 +90,8 @@ OTHER_CC = \
 	valuelink.cpp \
 	workarea.cpp \
 	main_win32.cpp \
-	mainwindow.cpp
+	mainwindow.cpp \
+	helpers.cpp
 
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/src
@@ -110,7 +112,6 @@ synfigstudio_LDADD = \
 	../synfigapp/libsynfigapp.la \
 	@SYNFIG_LIBS@ \
 	@GTKMM_LIBS@ \
-	@FMOD_LIBS@ \
 	@JACK_LIBS@
 
 synfigstudio_LDFLAGS = \
@@ -123,4 +124,5 @@ synfigstudio_CXXFLAGS = \
 	-DIMAGE_DIR=\"$(imagedir)\" \
 	-DIMAGE_EXT=\"$(imageext)\" \
 	-DPLUGIN_DIR=\"$(plugindir)\" \
+	-DSOUND_DIR=\"$(sounddir)\" \
 	-DLOCALEDIR=\"${LOCALEDIR}\"

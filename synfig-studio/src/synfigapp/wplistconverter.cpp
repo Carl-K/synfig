@@ -144,9 +144,8 @@ WPListConverter::calculate_ek2(unsigned int k1, unsigned int k2, bool first_time
 {
 	// remember: k2 is at the interval end
 	unsigned int i;
-	Real curr_max_err2(0);
-	unsigned int ret_kem;
 	WidthPoint wp_prev, wp_next;
+
 	if(!first_time)
 		se=se*n;
 	else
@@ -160,7 +159,7 @@ WPListConverter::calculate_ek2(unsigned int k1, unsigned int k2, bool first_time
 		{
 			wp_prev=work_out[find_prev(i)];
 			wp_next=work_out[find_next(i)];
-			g=widths[i]-widthpoint_interpolate(wp_prev, wp_next, norm_distances[i], false);
+			g=widths[i]-widthpoint_interpolate(wp_prev, wp_next, norm_distances[i], 0.0);
 		}
 		else
 			g=widths[i]-work_out[i].get_width(); // should be zero.
@@ -178,6 +177,10 @@ WPListConverter::calculate_ek2(unsigned int k1, unsigned int k2, bool first_time
 		ek2[i]=gg;
 	}
 	se=se/n;
+	
+	unsigned int ret_kem = 0;
+	Real curr_max_err2(-1);
+
 	for(i=0;i<n;i++)
 	{
 		if(curr_max_err2 < ek2[i])

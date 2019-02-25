@@ -52,6 +52,7 @@
 #include "actions/layerparamconnect.h"
 #include "actions/layerparamdisconnect.h"
 #include "actions/layerencapsulate.h"
+#include "actions/layerencapsulatefilter.h"
 #include "actions/layerencapsulateswitch.h"
 #include "actions/layerduplicate.h"
 #include "actions/layersetdesc.h"
@@ -171,7 +172,7 @@ synfigapp::Action::Book *book_;
 
 #define ADD_ACTION(x) { BookEntry &be(book()[x::name__]); \
 	be.name=x::name__; \
-	be.local_name=dgettext("synfigstudio",x::local_name__); \
+	be.local_name=_(x::local_name__); \
 	be.version=x::version__; \
 	be.task=x::task__; \
 	be.priority=x::priority__; \
@@ -202,6 +203,7 @@ Action::Main::Main()
 	ADD_ACTION(Action::LayerParamConnect);
 	ADD_ACTION(Action::LayerParamDisconnect);
 	ADD_ACTION(Action::LayerEncapsulate);
+	ADD_ACTION(Action::LayerEncapsulateFilter);
 	ADD_ACTION(Action::LayerEncapsulateSwitch);
 	ADD_ACTION(Action::LayerDuplicate);
 	ADD_ACTION(Action::LayerSetDesc);
@@ -478,7 +480,7 @@ Super::perform()
 				throw;
 			}
 		}
-		catch(Error x)
+		catch(Error& x)
 		{
 			//synfig::info("%s:%d caught exception", __FILE__, __LINE__);
 			throw Error(x.get_type(),((*iter)->get_local_name()+": "+x.get_desc()).c_str());

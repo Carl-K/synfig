@@ -75,18 +75,6 @@ using namespace studio;
 #define EPSILON	0.0000001
 #endif
 
-#if !GTK_CHECK_VERSION(2, 21, 0)
-#define GDK_KEY_Control_L GDK_Control_L
-#define GDK_KEY_Control_R GDK_Control_R
-#define GDK_KEY_Shift_L GDK_Shift_L
-#define GDK_KEY_Shift_R GDK_Shift_R
-#define GDK_KEY_Alt_L GDK_Alt_L
-#define GDK_KEY_Alt_R GDK_Alt_R
-#define GDK_KEY_Meta_L GDK_Meta_L
-#define GDK_KEY_Meta_R GDK_Meta_R
-#define GDK_KEY_space GDK_space
-#endif
-
 /* === G L O B A L S ======================================================= */
 
 StateNormal studio::state_normal;
@@ -289,7 +277,8 @@ StateNormal_Context::StateNormal_Context(CanvasView* canvas_view):
 	duck_dragger_(new DuckDrag_Combo()),
 	ctrl_pressed(),
 	alt_pressed(),
-	shift_pressed()
+	shift_pressed(),
+	space_pressed(false)
 {
 	duck_dragger_->canvas_view_=get_canvas_view();
 
@@ -336,6 +325,7 @@ StateNormal_Context::~StateNormal_Context()
 }
 
 DuckDrag_Combo::DuckDrag_Combo():
+	original_angle(),
 	original_mag(),
 	bad_drag(),
 	move_only(),
@@ -398,6 +388,9 @@ DuckDrag_Combo::duck_drag(Duckmatic* duckmatic, const synfig::Vector& vector)
 
 	if(bad_drag)
 		return;
+
+	// this is quick-hack mostly, so need to check if nothing broken
+	//if (!move_only && !scale && !rotate) return; // nothing to do
 
 	//Override axis lock set in workarea when holding down the shift key
 	if (!move_only && (scale || rotate))
@@ -573,7 +566,7 @@ StateNormal_Context::event_refresh_handler(const Smach::event& /*x*/)
 {
 	// synfig::info("STATE NORMAL: Received Refresh Event");
 	canvas_view_->rebuild_tables();
-	canvas_view_->get_work_area()->queue_render_preview();
+	canvas_view_->get_work_area()->queue_render();
 	return Smach::RESULT_ACCEPT;
 }
 

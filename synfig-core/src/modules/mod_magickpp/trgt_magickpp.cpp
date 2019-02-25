@@ -60,15 +60,14 @@ MagickCore::Image* copy_image_list(Container& container)
 	typedef typename Container::iterator Iter;
 	MagickCore::Image* previous = 0;
 	MagickCore::Image* first = NULL;
-	MagickCore::ExceptionInfo exceptionInfo;
-	MagickCore::GetExceptionInfo(&exceptionInfo);
+	MagickCore::ExceptionInfo* exceptionInfo = MagickCore::AcquireExceptionInfo();
 	for (Iter iter = container.begin(); iter != container.end(); ++iter)
 	{
 		MagickCore::Image* current;
 
 		try
 		{
-			current = CloneImage(iter->image(), 0, 0, Magick::MagickTrue, &exceptionInfo);
+			current = CloneImage(iter->image(), 0, 0, Magick::MagickTrue, exceptionInfo);
 
 			if (!first) first = current;
 
@@ -78,22 +77,22 @@ MagickCore::Image* copy_image_list(Container& container)
 			if ( previous != 0) previous->next = current;
 			previous = current;
 		}
-		catch(Magick::Warning warning) {
+		catch(Magick::Warning &warning) {
 			synfig::warning("exception '%s'", warning.what());
 		}
 	}
 
+	exceptionInfo = MagickCore::DestroyExceptionInfo(exceptionInfo);
 	return first;
 }
 
 magickpp_trgt::~magickpp_trgt()
 {
-	MagickCore::ExceptionInfo exceptionInfo;
-	MagickCore::GetExceptionInfo(&exceptionInfo);
+	MagickCore::ExceptionInfo* exceptionInfo = MagickCore::AcquireExceptionInfo();
 
 	try
 	{
-		bool multiple_images = images.size() != 1;
+		bool multiple_images = images.size() > 1;
 		bool can_adjoin = false;
 
 		if (multiple_images)
@@ -103,10 +102,10 @@ magickpp_trgt::~magickpp_trgt()
 			image.fileName(filename);
 			try
 			{
-				SetImageInfo(image.imageInfo(),Magick::MagickTrue,&exceptionInfo);
+				SetImageInfo(image.imageInfo(),Magick::MagickTrue,exceptionInfo);
 				can_adjoin = image.adjoin();
 			}
-			catch(Magick::Warning warning) {
+			catch(Magick::Warning &warning) {
 				synfig::warning("exception '%s'", warning.what());
 			}
 		}
@@ -137,9 +136,9 @@ magickpp_trgt::~magickpp_trgt()
 				synfig::info("removing duplicate frames");
 				try
 				{
-					RemoveDuplicateLayers(&image_list, &exceptionInfo);
+					RemoveDuplicateLayers(&image_list, exceptionInfo);
 				}
-				catch(Magick::Warning warning) {
+				catch(Magick::Warning &warning) {
 					synfig::warning("exception '%s'", warning.what());
 				}
 			}
@@ -149,9 +148,9 @@ magickpp_trgt::~magickpp_trgt()
 				synfig::info("optimizing layers");
 				try
 				{
-					image_list = OptimizeImageLayers(image_list,&exceptionInfo);
+					image_list = OptimizeImageLayers(image_list,exceptionInfo);
 				}
-				catch(Magick::Warning warning) {
+				catch(Magick::Warning &warning) {
 					synfig::warning("exception '%s'", warning.what());
 				}
 			}
@@ -161,9 +160,9 @@ magickpp_trgt::~magickpp_trgt()
 				synfig::info("optimizing layer transparency");
 				try
 				{
-					OptimizeImageTransparency(image_list,&exceptionInfo);
+					OptimizeImageTransparency(image_list,exceptionInfo);
 				}
-				catch(Magick::Warning warning) {
+				catch(Magick::Warning &warning) {
 					synfig::warning("exception '%s'", warning.what());
 				}
 			}
@@ -186,14 +185,14 @@ magickpp_trgt::~magickpp_trgt()
 			Magick::writeImages(images.begin(), images.end(), filename);
 			synfig::info("done");
 		}
-		catch(Magick::Warning warning) {
+		catch(Magick::Warning &warning) {
 			synfig::warning("exception '%s'", warning.what());
 		}
 	}
-	catch(Magick::Warning warning) {
+	catch(Magick::Warning &warning) {
 		synfig::warning("exception '%s'", warning.what());
 	}
-	catch(Magick::Error error) {
+	catch(Magick::Error &error) {
 		synfig::error("exception '%s'", error.what());
 	}
 	catch(...) {
@@ -203,6 +202,8 @@ magickpp_trgt::~magickpp_trgt()
 	if (buffer1 != NULL) delete [] buffer1;
 	if (buffer2 != NULL) delete [] buffer2;
 	if (color_buffer != NULL) delete [] color_buffer;
+	//exceptionInfo = MagickCore::DestroyExceptionInfo(exceptionInfo);
+	MagickCore::DestroyExceptionInfo(exceptionInfo);
 }
 
 bool
@@ -213,7 +214,7 @@ magickpp_trgt::set_rend_desc(RendDesc *given_desc)
 }
 
 bool
-magickpp_trgt::init(synfig::ProgressCallback *cb)
+magickpp_trgt::init(synfig::ProgressCallback*)
 {
 	width = desc.get_w();
 	height = desc.get_h();
@@ -274,8 +275,7 @@ magickpp_trgt::start_scanline(int scanline __attribute__ ((unused)))
 bool
 magickpp_trgt::end_scanline()
 {
-	convert_color_format(buffer_pointer, color_buffer,
-						 width, PF_RGB|PF_A, gamma());
+	color_to_pixelformat(previous_buffer_pointer, color_buffer, PF_RGB|PF_A, &gamma(), width);
 
 	if (!transparent)
 		for (int i = 0; i < width; i++)

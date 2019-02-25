@@ -113,19 +113,17 @@ Action::KeyframeAdd::is_ready()const
 void
 Action::KeyframeAdd::perform()
 {
-	try { get_canvas()->keyframe_list().find(keyframe.get_time()); throw Error(_("A Keyframe already exists at this point in time"));}
-	catch(synfig::Exception::NotFound) { }
-
-	try { get_canvas()->keyframe_list().find(keyframe); throw Error(_("This keyframe is already in the ValueNode"));}
-	catch(synfig::Exception::NotFound) { }
+	KeyframeList::iterator iter;
+	if (get_canvas()->keyframe_list().find(keyframe.get_time(), iter))
+		throw Error(_("A Keyframe already exists at this point in time"));
+	if (get_canvas()->keyframe_list().find(keyframe, iter))
+		throw Error(_("This keyframe is already in the ValueNode"));
 
 	get_canvas()->keyframe_list().add(keyframe);
-
 	if(get_canvas_interface())
-	{
 		get_canvas_interface()->signal_keyframe_added()(keyframe);
-	}
-	else synfig::warning("CanvasInterface not set on action");
+	else
+		synfig::warning("CanvasInterface not set on action");
 }
 
 void

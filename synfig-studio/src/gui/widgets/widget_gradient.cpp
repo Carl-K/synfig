@@ -100,7 +100,8 @@ studio::render_gradient_to_window(const Cairo::RefPtr<Cairo::Context>& cr,const 
 /* === M E T H O D S ======================================================= */
 
 Widget_Gradient::Widget_Gradient():
-	editable_(false)
+	editable_(false),
+	changed_(false)
 {
 	set_size_request(-1,64);
 	add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK);
@@ -250,17 +251,12 @@ Widget_Gradient::set_selected_cpoint(const synfig::Gradient::CPoint &x)
 void
 Widget_Gradient::update_cpoint(const synfig::Gradient::CPoint &x)
 {
-	try
-	{
-		Gradient::iterator iter(gradient_.find(x));
+	Gradient::iterator iter(gradient_.find(x));
+	if (iter != gradient_.end()) {
 		iter->pos=x.pos;
 		iter->color=x.color;
 		gradient_.sort();
 		queue_draw();
-	}
-	catch(synfig::Exception::NotFound)
-	{
-		// Yotta...
 	}
 }
 
@@ -281,8 +277,8 @@ Widget_Gradient::on_event(GdkEvent *event)
 		case GDK_MOTION_NOTIFY:
 			if(editable_ && y>get_height()-CONTROL_HEIGHT)
 			{
-				if(!gradient_.size()) return true;
 				Gradient::iterator iter(gradient_.find(selected_cpoint));
+				if (iter == gradient_.end()) return true;
 				//! Use SHIFT to stack two CPoints together.
 				if(event->button.state&GDK_SHIFT_MASK)
 				{

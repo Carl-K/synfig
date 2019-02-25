@@ -240,6 +240,7 @@ LayerParamTreeStore::set_value_impl(const Gtk::TreeModel::iterator& iter, int co
 		if(column==model.value.index())
 		{
 			Glib::Value<synfig::ValueBase> x;
+			// We did not find a compatible converter, so for now, let's leave it as is
 			g_value_init(x.gobj(),model.value.type());
 			g_value_copy(value.gobj(),x.gobj());
 
@@ -249,9 +250,11 @@ LayerParamTreeStore::set_value_impl(const Gtk::TreeModel::iterator& iter, int co
 
 				synfig::ParamDesc param_desc((*iter)[model.param_desc]);
 
-				LayerList::iterator iter2(layer_list.begin());
+				LayerList mylist(layer_list);
+				LayerList::iterator iter2(mylist.begin());
 
-				for(;iter2!=layer_list.end();++iter2)
+				//for(;iter2!=layer_list.end();++iter2)
+				for(;iter2!=mylist.end();iter2++)
 				{
 					if(!canvas_interface()->change_value(synfigapp::ValueDesc(*iter2,param_desc.get_name()),x.get()))
 					{
@@ -597,8 +600,18 @@ LayerParamTreeStore::on_value_node_replaced(synfig::ValueNode::Handle /*replaced
 }
 
 void
-LayerParamTreeStore::on_layer_param_changed(synfig::Layer::Handle /*handle*/,synfig::String /*param_name*/)
+LayerParamTreeStore::on_layer_param_changed(synfig::Layer::Handle handle, synfig::String param_name)
 {
+	//when a freetype layer param's text has changed, signal the layer the new text content
+
+	if (param_name == "text")
+	{
+		const String &temp = String();
+		const String textContent = handle->get_param("text").get(temp);
+		handle->set_description(textContent);
+		canvas_interface()->signal_layer_new_description()(handle, textContent);
+	}
+
 	queue_refresh();
 }
 

@@ -49,6 +49,7 @@
 #include "loadcanvas.h"
 #include "valuenode_registry.h"
 
+#include "debug/measure.h"
 #include "layers/layer_pastecanvas.h"
 #include "valuenodes/valuenode_const.h"
 #include "valuenodes/valuenode_scale.h"
@@ -62,6 +63,8 @@ using namespace std;
 namespace synfig { extern Canvas::Handle open_canvas_as(const FileSystem::Identifier &identifier, const String &as, String &errors, String &warnings); };
 
 /* === M A C R O S ========================================================= */
+
+//#define DEBUG_SET_TIME_MEASURE
 
 #define ALLOW_CLONE_NON_INLINE_CANVASES
 
@@ -224,8 +227,8 @@ Canvas::get_context(const Context &parent_context)const
 	return get_context(parent_context.get_params());
 }
 
-void
-Canvas::get_context_sorted(const ContextParams &params, CanvasBase &out_queue, Context &out_context) const
+Context
+Canvas::get_context_sorted(const ContextParams &params, CanvasBase &out_queue) const
 {
 	multimap<Real, Layer::Handle> layers;
 	int index = 0;
@@ -242,7 +245,7 @@ Canvas::get_context_sorted(const ContextParams &params, CanvasBase &out_queue, C
 		out_queue.push_back(i->second);
 	out_queue.push_back(Layer::Handle());
 
-	out_context = Context(out_queue.begin(), params);
+	return Context(out_queue.begin(), params);
 }
 
 const ValueNodeList &
@@ -348,6 +351,10 @@ Canvas::set_time(Time t)const
 {
 	if(is_dirty_ || !get_time().is_equal(t))
 	{
+		#ifdef DEBUG_SET_TIME_MEASURE
+		debug::Measure measure("Canvas::set_time", true);
+		#endif
+
 #if 0
 		if(is_root())
 		{
@@ -364,6 +371,12 @@ Canvas::set_time(Time t)const
 		get_independent_context().set_time(t);
 	}
 	is_dirty_=false;
+}
+
+void
+Canvas::load_resources(Time t)const
+{
+	get_independent_context().load_resources(t);
 }
 
 Canvas::LooseHandle
@@ -532,7 +545,7 @@ Canvas::add_value_node(ValueNode::Handle x, const String &id)
 
 		throw Exception::IDAlreadyExists(id);
 	}
-	catch(Exception::IDNotFound)
+	catch(Exception::IDNotFound&)
 	{
 		x->set_id(id);
 
@@ -564,7 +577,7 @@ Canvas::rename_value_node(ValueNode::Handle x, const String &id)
 			throw Exception::IDNotFound("rename_value_node");
 		throw Exception::IDAlreadyExists(id);
 	}
-	catch(Exception::IDNotFound)
+	catch(Exception::IDNotFound&)
 	{
 		x->set_id(id);
 
@@ -1007,7 +1020,7 @@ Canvas::add_child_canvas(Canvas::Handle child_canvas, const synfig::String& id)
 		find_canvas(id, warnings);
 		throw Exception::IDAlreadyExists(id);
 	}
-	catch(Exception::IDNotFound)
+	catch(Exception::IDNotFound&)
 	{
 		if(child_canvas->is_inline())
 			child_canvas->is_inline_=false;

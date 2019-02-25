@@ -92,7 +92,7 @@ private:
 	sigc::signal<void,synfig::Keyframe> signal_keyframe_added_;
 	sigc::signal<void,synfig::Keyframe> signal_keyframe_removed_;
 	sigc::signal<void,synfig::Keyframe> signal_keyframe_changed_;
-	sigc::signal<void,synfig::Keyframe,void*> signal_keyframe_selected_;
+	sigc::signal<void,synfig::Keyframe> signal_keyframe_selected_;
 	sigc::signal<void> signal_keyframe_properties_;
 
 	sigc::signal<void> signal_id_changed_;
@@ -133,7 +133,7 @@ public:	// Signal Interface
 
 	//! Signal called when the layer's zdepth range has changed. This layer has to be Layer_PasteCanvas
 	sigc::signal<void,synfig::Layer::Handle,bool>& signal_layer_z_range_changed() { return signal_layer_z_range_changed_; }
-
+	
 	//! Signal called when a canvas has been added.
 	sigc::signal<void,etl::handle<synfig::Canvas> >& signal_canvas_added() { return signal_canvas_added_; }
 
@@ -189,7 +189,7 @@ public:	// Signal Interface
 	sigc::signal<void,synfig::Keyframe>& signal_keyframe_changed() { return signal_keyframe_changed_; }
 	//! Signal called when a keyframe is selected
 	/*!	Second parameter (void*) hold 'this*' of the signal emiter class (to prevent endless loop)*/
-	sigc::signal<void,synfig::Keyframe,void*>& signal_keyframe_selected() { return signal_keyframe_selected_; }
+	sigc::signal<void,synfig::Keyframe>& signal_keyframe_selected() { return signal_keyframe_selected_; }
 	//! Signal called when the properties dialog of the selected keyframe must be shown
 	sigc::signal<void>& signal_keyframe_properties() { return signal_keyframe_properties_; }
 

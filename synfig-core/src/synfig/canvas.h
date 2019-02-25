@@ -465,6 +465,9 @@ public:
 
 	//! Sets the time for all the layers in the canvas
 	void set_time(Time t)const;
+	
+	//! Loads resources (frames) for all the external layers in the canvas
+	void load_resources(Time t)const;
 
 	//! Returns the current time of the Canvas
 	Time get_time()const { return cur_time_; }
@@ -587,7 +590,7 @@ public:
 	Context get_context(const Context &parent_context)const;
 
 	//! Retireves sorted double queue of Layers and Context of the first layer with rendering parameters
-	void get_context_sorted(const ContextParams &params, CanvasBase &out_queue, Context &out_context) const;
+	Context get_context_sorted(const ContextParams &params, CanvasBase &out_queue) const;
 
 	//! Returns the last Canvas layer queue iterator. Notice that it
 	/*! overrides the std::end() member that would return an interator

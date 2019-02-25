@@ -1675,11 +1675,8 @@ Svg_parser::newSVGMatrix(const String mvector){
 }
 void
 Svg_parser::transformPoint2D(SVGMatrix *mtx,float *a,float *b){
-	float auxa,auxb;
-	auxa=0;
-	auxb=0;
-	auxa= (*a)*(mtx->a) + (*b)*(mtx->c) + (mtx->e);
-	auxb= (*a)*(mtx->b) + (*b)*(mtx->d) + (mtx->f);
+	float auxa= (*a)*(mtx->a) + (*b)*(mtx->c) + (mtx->e);
+	float auxb= (*a)*(mtx->b) + (*b)*(mtx->d) + (mtx->f);
 	*a=auxa;
 	*b=auxb;
 	return;
@@ -1801,6 +1798,10 @@ Svg_parser::get_tokens_path(String path){ //mini path lexico-parser
 					else if(a=='-' || a=='.' || a=='e' || a=='E' || isdigit (a)){ e=18;}
 					else if(a==','){ e=19; i++;}
 					else if(a==' '){i++;}
+					else {
+						synfig::warning("unknown token in SVG path '%c'", a);
+						i++;
+					}
 					break;
 			//relative
 			case 1 : tokens.push_back("m"); e=0; break;//move

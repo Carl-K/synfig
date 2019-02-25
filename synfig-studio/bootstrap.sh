@@ -1,12 +1,14 @@
 #!/bin/sh
 
-AUTORECONF=`which autoreconf`
+set -e
+
+AUTORECONF=`command -v autoreconf || true`
 if test -z $AUTORECONF; then
         echo "*** No autoreconf found, please install it ***"
         exit 1
 fi
 
-INTLTOOLIZE=`which intltoolize`
+INTLTOOLIZE=`command -v intltoolize || true`
 if test -z $INTLTOOLIZE; then
         echo "*** No intltoolize found, please install the intltool package ***"
         exit 1
@@ -25,6 +27,6 @@ AUTOPOINT='intltoolize --automake --copy' autoreconf --force --install --verbose
 #       is fixed in intltool
 
 sed 's/itlocaledir = $(prefix)\/$(DATADIRNAME)\/locale/itlocaledir = $(datarootdir)\/locale/' < po/Makefile.in.in > po/Makefile.in.in.tmp
-mv po/Makefile.in.in.tmp po/Makefile.in.in
+mv -f po/Makefile.in.in.tmp po/Makefile.in.in
 
 echo "Done! Please run ./configure now."

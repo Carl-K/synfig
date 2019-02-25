@@ -292,14 +292,11 @@ Instance::import_external_canvases()
 	return group.finish();
 }
 
-bool Instance::save_surface(const synfig::rendering::Surface::Handle &surface, const synfig::String &filename)
+bool Instance::save_surface(const rendering::SurfaceResource::Handle &surface, const synfig::String &filename)
 {
-	if (!surface || !surface->is_created())
-		return false;
-
-	rendering::SurfaceSW::Handle surface_sw = rendering::SurfaceSW::Handle::cast_dynamic(surface);
-	if (!surface_sw) surface_sw = new rendering::SurfaceSW(*surface);
-	return save_surface(surface_sw->get_surface(), filename);
+	rendering::SurfaceResource::LockRead<rendering::SurfaceSW> lock(surface);
+	if (!lock) return false;
+	return save_surface(lock->get_surface(), filename);
 }
 
 bool Instance::save_surface(const synfig::Surface &surface, const synfig::String &filename)
@@ -565,6 +562,7 @@ Instance::save_layer(const synfig::Layer::Handle &layer)
 		}
 	}
 	error("Don't know how to save layer type: %s", layer->get_name().c_str());
+	return false;
 }
 
 void
@@ -581,22 +579,20 @@ Instance::backup()
 {
 	if (!get_action_count())
 		return true;
-	bool success = true;
 	FileSystemTemporary::Handle temporary_filesystem = FileSystemTemporary::Handle::cast_dynamic(get_canvas()->get_file_system());
-	if (success && !temporary_filesystem)
+
+	if (!temporary_filesystem)
 	{
 		warning("Cannot backup, canvas was not attached to temporary file system: %s", get_file_name().c_str());
-		success = false;
 		return false;
 	}
 	// don't save images while backup
 	//if (success)
 	//	save_all_layers();
-	if (success)
-		success = save_canvas(get_canvas()->get_identifier(), get_canvas(), false);
-	if (success)
-		success = temporary_filesystem->save_temporary();
-	return success;
+	if (!save_canvas(get_canvas()->get_identifier(), get_canvas(), false))
+		return false;
+	
+	return temporary_filesystem->save_temporary();
 }
 
 bool
@@ -726,42 +722,33 @@ Instance::save_as(const synfig::String &file_name)
 	return false;
 }
 
-bool
+void
 Instance::generate_new_name(
-		synfig::Layer::Handle layer,
-		synfig::Canvas::Handle canvas,
-		synfig::FileSystem::Handle file_system,
-		synfig::String &out_description,
-		synfig::String &out_filename,
-		synfig::String &out_filename_param)
+	const Layer::Handle &layer,
+	String &out_description,
+	String &out_filename,
+	String &out_filename_param )
 {
-	out_description.clear();
-	out_filename.clear();
-	out_filename_param.clear();
-
-	String description = layer->get_description();
-	if (description.empty()) description = layer->get_local_name();
-
 	String filename;
-	if (layer->get_param_list().count("filename"))
-	{
+	if (layer->get_param_list().count("filename")) {
 		ValueBase value = layer->get_param("filename");
 		if (value.same_type_as(String()))
 			filename = basename(value.get(String()));
 	}
 
-	if (filename.empty()) filename = description;
+	if (filename.empty())
+		filename = !layer->get_description().empty()
+        		 ? layer->get_description()
+        		 : layer->get_local_name();
 	if (CanvasFileNaming::filename_extension_lower(filename) != "png")
 		filename += ".png";
 
-	assert(canvas->get_file_system());
-	String short_filename = CanvasFileNaming::generate_container_filename(canvas->get_file_system(), filename);
-	String full_filename = CanvasFileNaming::make_full_filename(canvas->get_file_name(), short_filename);
+	assert(get_canvas()->get_file_system());
+	String short_filename = CanvasFileNaming::generate_container_filename(get_canvas()->get_file_system(), filename);
+	String full_filename = CanvasFileNaming::make_full_filename(get_canvas()->get_file_name(), short_filename);
 	String base = etl::filename_sans_extension(CanvasFileNaming::filename_base(short_filename));
 
 	out_description = base;
 	out_filename = full_filename;
 	out_filename_param = short_filename;
-
-	return true;
 }

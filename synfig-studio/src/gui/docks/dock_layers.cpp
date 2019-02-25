@@ -118,7 +118,11 @@ Dock_Layers::Dock_Layers():
 		for(iter=category_map.begin();iter!=category_map.end();++iter)
 		{
 			layer_ui_info+=strprintf("<menu action='%s'>%s</menu>",iter->first.c_str(),iter->second.c_str());
-			action_group_categories->add(Gtk::Action::create(iter->first.c_str(),dgettext("synfig", iter->first.c_str())));
+			#ifdef ENABLE_NLS
+				action_group_categories->add(Gtk::Action::create(iter->first.c_str(), dgettext("synfig", iter->first.c_str())));
+			#else
+				action_group_categories->add(Gtk::Action::create(iter->first.c_str(), iter->first.c_str()));
+			#endif
 		}
 
 		App::ui_manager()->insert_action_group(action_group_categories);
@@ -136,7 +140,7 @@ Dock_Layers::Dock_Layers():
 			        + "</menu></menu></menubar></ui>";
 			App::ui_manager()->add_ui_from_string(ui_info);
 		}
-		catch(Glib::MarkupError x)
+		catch(Glib::MarkupError& x)
 		{
 			error("%s:%d caught MarkupError code %d: %s", __FILE__, __LINE__, x.code(), x.what().c_str());
 			error("%s:%d with markup: \"%s\"", __FILE__, __LINE__, layer_ui_info.c_str());
@@ -234,7 +238,7 @@ Dock_Layers::init_canvas_view_vfunc(etl::loose_handle<CanvasView> canvas_view)
 	//! \see CanvasView::set_ext_widget
 	//! \see CanvasView::~CanvasView
 	LayerTree* layer_tree(new LayerTree());
-	layer_tree->set_time_adjustment(canvas_view->time_adjustment());
+	layer_tree->set_time_model(canvas_view->time_model());
 
 	layer_tree->signal_edited_value().connect(
 		sigc::hide_return(
@@ -257,8 +261,8 @@ Dock_Layers::init_canvas_view_vfunc(etl::loose_handle<CanvasView> canvas_view)
 	*/
 
 	// Hide the time bar
-	if(canvas_view->get_canvas()->rend_desc().get_time_start()==canvas_view->get_canvas()->rend_desc().get_time_end())
-		canvas_view->hide_timebar();
+	//if(canvas_view->get_canvas()->rend_desc().get_time_start()==canvas_view->get_canvas()->rend_desc().get_time_end())
+	//	canvas_view->hide_timebar();
 	layer_tree_store->rebuild();
 	present();
 }

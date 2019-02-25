@@ -75,7 +75,7 @@
 #endif
 
 #include <synfig/general.h>
-
+#include <synfig/color.h>
 #include <synfig/canvasfilenaming.h>
 #include <synfig/filesystemnative.h>
 #include <synfig/filesystemgroup.h>
@@ -83,6 +83,8 @@
 #include <synfig/importer.h>
 #include <synfig/loadcanvas.h>
 #include <synfig/savecanvas.h>
+#include <synfig/layer.h>
+#include <synfig/soundprocessor.h>
 
 #include "app.h"
 #include "splash.h"
@@ -96,6 +98,9 @@
 #include "onemoment.h"
 #include "devicetracker.h"
 #include "widgets/widget_enum.h"
+
+#include <synfigapp/canvasinterface.h>
+#include <synfigapp/actions/layersetdesc.h>
 
 #include "statemanager.h"
 
@@ -123,6 +128,8 @@
 #include "autorecover.h"
 
 #include <synfigapp/settings.h>
+#include <synfigapp/canvasinterface.h>
+#include <synfigapp/action.h>
 
 #include "docks/dockmanager.h"
 #include "docks/dialog_tooloptions.h"
@@ -144,10 +151,6 @@
 #include "modules/mod_palette/mod_palette.h"
 
 #include "ipc.h"
-
-#ifdef WITH_FMOD
-#include <fmod.h>
-#endif
 
 #include <gui/localization.h>
 
@@ -193,6 +196,17 @@ using namespace studio;
 #	define PLUGIN_DIR "/usr/local/share/synfig/plugins"
 #endif
 
+#ifdef _WIN32
+#	ifdef SOUND_DIR
+#		undef SOUND_DIR
+#		define SOUND_DIR "share\\synfig\\sounds"
+#	endif
+#endif
+
+#ifndef SOUND_DIR
+#	define SOUND_DIR "/usr/local/share/synfig/sounds"
+#endif
+
 #include <synfigapp/main.h>
 
 /* === S I G N A L S ======================================================= */
@@ -223,67 +237,59 @@ App::signal_instance_deleted() { return signal_instance_deleted_; }
 
 /* === G L O B A L S ======================================================= */
 
-static std::list<std::string> recent_files;
-const std::list<std::string>& App::get_recent_files() { return recent_files; }
+static std::list<std::string>           recent_files;
+const  std::list<std::string>& App::get_recent_files() { return recent_files; }
 
-int	App::Busy::count;
+int	 App::Busy::count;
 bool App::shutdown_in_progress;
 
 synfig::Gamma App::gamma;
 
 Glib::RefPtr<studio::UIManager>	App::ui_manager_;
 
-int App::jack_locks_=0;
+int        App::jack_locks_ = 0;
+Dock_Info* App::dock_info_  = 0;
 
-synfig::Distance::System App::distance_system;
+synfig::Distance::System  App::distance_system;
 
-studio::Dialog_Setup* App::dialog_setup;
+studio::Dialog_Setup     *App::dialog_setup;
 
 etl::handle< studio::ModPalette > mod_palette_;
 //studio::Dialog_Palette* App::dialog_palette;
 
 std::list<etl::handle<Instance> > App::instance_list;
 
-static etl::handle<synfigapp::UIInterface> ui_interface_;
-const etl::handle<synfigapp::UIInterface>& App::get_ui_interface() { return ui_interface_; }
+static etl::handle<synfigapp::UIInterface>           ui_interface_;
+const  etl::handle<synfigapp::UIInterface>& App::get_ui_interface() { return ui_interface_; }
 
-etl::handle<Instance> App::selected_instance;
+etl::handle<Instance>   App::selected_instance;
 etl::handle<CanvasView> App::selected_canvas_view;
 
-studio::About *studio::App::about=NULL;
+studio::About              *studio::App::about          = NULL;
+studio::MainWindow         *studio::App::main_window    = NULL;
+studio::Dock_Toolbox       *studio::App::dock_toolbox   = NULL;
+studio::AutoRecover        *studio::App::auto_recover   = NULL;
+studio::IPC                *ipc                         = NULL;
+studio::DockManager        *studio::App::dock_manager   = 0;
+studio::DeviceTracker      *studio::App::device_tracker = 0;
 
-studio::MainWindow *studio::App::main_window=NULL;
+studio::Dialog_Gradient    *studio::App::dialog_gradient;
+studio::Dialog_Color       *studio::App::dialog_color;
+studio::Dialog_Input       *studio::App::dialog_input;
+studio::Dialog_ToolOptions *studio::App::dialog_tool_options;
 
-studio::Dock_Toolbox *studio::App::dock_toolbox=NULL;
-
-studio::AutoRecover *studio::App::auto_recover=NULL;
-
-studio::IPC *ipc=NULL;
-
-studio::DockManager* studio::App::dock_manager=0;
-
-studio::DeviceTracker* studio::App::device_tracker=0;
-
-studio::Dialog_Gradient* studio::App::dialog_gradient;
-
-studio::Dialog_Color* studio::App::dialog_color;
-
-studio::Dialog_Input* studio::App::dialog_input;
-
-studio::Dialog_ToolOptions* studio::App::dialog_tool_options;
-
-studio::Dock_History* dock_history;
-studio::Dock_Canvases* dock_canvases;
-studio::Dock_Keyframes* dock_keyframes;
-studio::Dock_Layers* dock_layers;
-studio::Dock_Params* dock_params;
-studio::Dock_MetaData* dock_meta_data;
-studio::Dock_Children* dock_children;
-studio::Dock_Info* dock_info;
-studio::Dock_LayerGroups* dock_layer_groups;
-studio::Dock_Navigator* dock_navigator;
-studio::Dock_Timetrack* dock_timetrack;
-studio::Dock_Curves* dock_curves;
+studio::Dock_History       *dock_history;
+studio::Dock_Canvases      *dock_canvases;
+studio::Dock_Keyframes     *dock_keyframes;
+studio::Dock_Layers        *dock_layers;
+studio::Dock_Params        *dock_params;
+studio::Dock_MetaData      *dock_meta_data;
+studio::Dock_Children      *dock_children;
+studio::Dock_Info          *dock_info;
+studio::Dock_LayerGroups   *dock_layer_groups;
+studio::Dock_Navigator     *dock_navigator;
+studio::Dock_Timetrack     *dock_timetrack;
+studio::Dock_Curves        *dock_curves;
 
 std::list< etl::handle< studio::Module > > module_list_;
 
@@ -295,30 +301,37 @@ bool studio::App::use_colorspace_gamma=true;
 	//bool studio::App::single_threaded=false;
 	//#endif // WIN32
 #endif  // SINGLE THREADED
-bool studio::App::restrict_radius_ducks=true;
-bool studio::App::resize_imported_images=false;
-bool studio::App::enable_experimental_features=false;
-bool studio::App::use_dark_theme=false;
-bool studio::App::show_file_toolbar=true;
-String studio::App::custom_filename_prefix(DEFAULT_FILENAME_PREFIX);
-int studio::App::preferred_x_size=480;
-int studio::App::preferred_y_size=270;
-String studio::App::predefined_size(DEFAULT_PREDEFINED_SIZE);
-String studio::App::predefined_fps(DEFAULT_PREDEFINED_FPS);
-float studio::App::preferred_fps=24.0;
+bool   studio::App::restrict_radius_ducks        = true;
+bool   studio::App::resize_imported_images       = false;
+bool   studio::App::enable_experimental_features = false;
+bool   studio::App::use_dark_theme               = false;
+bool   studio::App::show_file_toolbar            = true;
+String studio::App::custom_filename_prefix       (DEFAULT_FILENAME_PREFIX);
+int    studio::App::preferred_x_size             = 480;
+int    studio::App::preferred_y_size             = 270;
+String studio::App::predefined_size              (DEFAULT_PREDEFINED_SIZE);
+String studio::App::predefined_fps               (DEFAULT_PREDEFINED_FPS);
+float  studio::App::preferred_fps                = 24.0;
 synfigapp::PluginManager studio::App::plugin_manager;
-std::set< String > studio::App::brushes_path;
+std::set< String >       studio::App::brushes_path;
 String studio::App::sequence_separator(".");
 String studio::App::navigator_renderer;
 String studio::App::workarea_renderer;
 
-bool studio::App::enable_mainwin_menubar = true;
+String        studio::App::default_background_layer_type  = "none";
+synfig::Color studio::App::default_background_layer_color =
+	synfig::Color(1.000000, 1.000000, 1.000000, 1.000000);  //White
+String        studio::App::default_background_layer_image = "undefined";
+synfig::Color studio::App::preview_background_color =
+	synfig::Color(0.742187, 0.742187, 0.742187, 1.000000);  //X11 Gray
+
+bool   studio::App::enable_mainwin_menubar = true;
 String studio::App::ui_language ("os_LANG");
-long studio::App::ui_handle_tooltip_flag(Duck::STRUCT_DEFAULT);
+long   studio::App::ui_handle_tooltip_flag(Duck::STRUCT_DEFAULT);
 
 static int max_recent_files_=25;
-int studio::App::get_max_recent_files() { return max_recent_files_; }
-void studio::App::set_max_recent_files(int x) { max_recent_files_=x; }
+int    studio::App::get_max_recent_files()      { return max_recent_files_; }
+void   studio::App::set_max_recent_files(int x) {        max_recent_files_ = x; }
 
 static synfig::String app_base_path_;
 
@@ -341,6 +354,10 @@ delete_widget(Gtk::Widget *widget)
 	// synfig::info("delete %p", (void*)widget);
 	Glib::signal_timeout().connect(sigc::bind(sigc::ptr_fun(&really_delete_widget), widget), 50);
 }
+
+//Static members need to be initialized outside of class declaration
+SoundProcessor *App::sound_render_done = NULL;
+bool App::use_render_done_sound = true;
 
 }; // END of namespace studio
 studio::StateManager* state_manager;
@@ -371,7 +388,7 @@ public:
 		if (! details.empty())
 			dialog.set_secondary_text(details);
 
-		dialog.add_button(cancel, RESPONSE_CANCEL);
+		dialog.add_button(cancel,  RESPONSE_CANCEL);
 		dialog.add_button(confirm, RESPONSE_OK);
 		dialog.set_default_response(dflt);
 
@@ -420,6 +437,7 @@ public:
 	error(const std::string &err)
 	{
 		Gtk::MessageDialog dialog(err, false, Gtk::MESSAGE_ERROR, Gtk::BUTTONS_CLOSE, true);
+		dialog.set_transient_for(*App::main_window);
 		dialog.show();
 		dialog.run();
 		return true;
@@ -503,8 +521,7 @@ public:
 				value=strprintf("%f %f %f %f",
 					App::gamma.get_gamma_r(),
 					App::gamma.get_gamma_g(),
-					App::gamma.get_gamma_b(),
-					App::gamma.get_black_level()
+					App::gamma.get_gamma_b()
 				);
 				return true;
 			}
@@ -535,12 +552,12 @@ public:
 				return true;
 			}
 #endif
-			if(key=="auto_recover_backup")
+			if(key=="autosave_backup")
 			{
 				value=strprintf("%i",App::auto_recover->get_enabled());
 				return true;
 			}
-			if(key=="auto_recover_backup_interval")
+			if(key=="autosave_backup_interval")
 			{
 				value=strprintf("%i",App::auto_recover->get_timeout_ms());
 				return true;
@@ -624,6 +641,41 @@ public:
 				value=App::workarea_renderer;
 				return true;
 			}
+			if (key == "default_background_layer_type")
+			{
+                value = strprintf("%s", App::default_background_layer_type.c_str());
+				return true;
+			}
+			if (key == "default_background_layer_color")
+			{
+				value = strprintf("%f %f %f %f",
+					App::default_background_layer_color.get_r(),
+					App::default_background_layer_color.get_g(),
+					App::default_background_layer_color.get_b(),
+					App::default_background_layer_color.get_a()
+					);
+				return true;
+			}
+			if (key == "default_background_layer_image")
+			{
+				value = strprintf("%s", App::default_background_layer_image.c_str());
+				return true;
+			}
+			if (key == "preview_background_color")
+			{
+				value = strprintf("%f %f %f %f",
+					App::preview_background_color.get_r(),
+					App::preview_background_color.get_g(),
+					App::preview_background_color.get_b(),
+					App::preview_background_color.get_a()
+					);
+				return true;
+			}
+			if(key=="use_render_done_sound")
+			{
+				value=strprintf("%i",(int)App::use_render_done_sound);
+				return true;
+			}
 			if(key=="enable_mainwin_menubar")
 			{
 				value=strprintf("%i", (int)App::enable_mainwin_menubar);
@@ -649,16 +701,15 @@ public:
 			synfig::ChangeLocale change_locale(LC_NUMERIC, "C");
 			if(key=="gamma")
 			{
-				float r,g,b,blk;
+				float r,g,b;
 
-				strscanf(value,"%f %f %f %f",
+				strscanf(value,"%f %f %f",
 					&r,
 					&g,
-					&b,
-					&blk
+					&b
 				);
 
-				App::gamma.set_all(r,g,b,blk);
+				App::gamma.set_all(r,g,b);
 
 				return true;
 			}
@@ -668,13 +719,13 @@ public:
 				App::set_time_format(static_cast<synfig::Time::Format>(i));
 				return true;
 			}
-			if(key=="auto_recover_backup")
+			if(key=="autosave_backup")
 			{
 				int i(atoi(value.c_str()));
 				App::auto_recover->set_enabled(i);
 				return true;
 			}
-			if(key=="auto_recover_backup_interval")
+			if(key=="autosave_backup_interval")
 			{
 				int i(atoi(value.c_str()));
 				App::auto_recover->set_timeout_ms(i);
@@ -790,6 +841,36 @@ public:
 				App::workarea_renderer=value;
 				return true;
 			}
+			if (key == "default_background_layer_type")
+			{
+				App::default_background_layer_type = value;
+				return true;
+			}
+			if (key == "default_background_layer_color")
+			{
+				float r,g,b,a;
+				strscanf(value,"%f %f %f %f", &r,&g,&b,&a);
+				App::default_background_layer_color = synfig::Color(r,g,b,a);
+				return true;
+			}
+			if (key == "default_background_layer_image")
+			{
+				App::default_background_layer_image = value;
+				return true;
+			}
+			if (key == "preview_background_color")
+			{
+				float r,g,b,a;
+				strscanf(value,"%f %f %f %f", &r,&g,&b,&a);
+				App::preview_background_color = synfig::Color(r,g,b,a);
+				return true;
+			}
+			if(key=="use_render_done_sound")
+			{
+				int i(atoi(value.c_str()));
+				App::use_render_done_sound=i;
+				return true;
+			}
 			if(key=="enable_mainwin_menubar")
 			{
 				int i(atoi(value.c_str()));
@@ -821,8 +902,8 @@ public:
 #ifdef SINGLE_THREADED
 		ret.push_back("use_single_threaded");
 #endif
-		ret.push_back("auto_recover_backup");
-		ret.push_back("auto_recover_backup_interval");
+		ret.push_back("autosave_backup");
+		ret.push_back("autosave_backup_interval");
 		ret.push_back("restrict_radius_ducks");
 		ret.push_back("resize_imported_images");
 		ret.push_back("enable_experimental_features");
@@ -839,6 +920,11 @@ public:
 		ret.push_back("sequence_separator");
 		ret.push_back("navigator_renderer");
 		ret.push_back("workarea_renderer");
+		ret.push_back("default_background_layer_type");
+		ret.push_back("default_background_layer_color");
+		ret.push_back("default_background_layer_image");
+		ret.push_back("preview_background_color");
+		ret.push_back("use_render_done_sound");
 		ret.push_back("enable_mainwin_menubar");
 		ret.push_back("ui_handle_tooltip_flag");
 
@@ -855,30 +941,30 @@ init_ui_manager()
 
 	Glib::RefPtr<Gtk::ActionGroup> actions_action_group = Gtk::ActionGroup::create("actions");
 
-	menus_action_group->add( Gtk::Action::create("menu-file", _("_File")));
-	menus_action_group->add( Gtk::Action::create("menu-open-recent", _("Open Recent")));
+	menus_action_group->add( Gtk::Action::create("menu-file",            _("_File")));
+	menus_action_group->add( Gtk::Action::create("menu-open-recent",     _("Open Recent")));
 
-	menus_action_group->add( Gtk::Action::create("menu-edit", _("_Edit")));
+	menus_action_group->add( Gtk::Action::create("menu-edit",            _("_Edit")));
 
-	menus_action_group->add( Gtk::Action::create("menu-view", _("_View")));
-	menus_action_group->add( Gtk::Action::create("menu-duck-mask", _("Show/Hide Handles")));
+	menus_action_group->add( Gtk::Action::create("menu-view",            _("_View")));
+	menus_action_group->add( Gtk::Action::create("menu-duck-mask",       _("Show/Hide Handles")));
 	menus_action_group->add( Gtk::Action::create("menu-preview-quality", _("Preview Quality")));
-	menus_action_group->add( Gtk::Action::create("menu-lowres-pixel", _("Low-Res Pixel Size")));
+	menus_action_group->add( Gtk::Action::create("menu-lowres-pixel",    _("Low-Res Pixel Size")));
 
-	menus_action_group->add( Gtk::Action::create("menu-canvas", _("_Canvas")));
+	menus_action_group->add( Gtk::Action::create("menu-canvas",          _("_Canvas")));
 
-	menus_action_group->add( Gtk::Action::create("menu-layer", _("_Layer")));
-	menus_action_group->add( Gtk::Action::create("menu-layer-new", _("New Layer")));
-	menus_action_group->add( Gtk::Action::create("menu-toolbox", _("Toolbox")));
-	menus_action_group->add( Gtk::Action::create("menu-plugins", _("Plug-Ins")));
+	menus_action_group->add( Gtk::Action::create("menu-layer",           _("_Layer")));
+	menus_action_group->add( Gtk::Action::create("menu-layer-new",       _("New Layer")));
+	menus_action_group->add( Gtk::Action::create("menu-toolbox",         _("Toolbox")));
+	menus_action_group->add( Gtk::Action::create("menu-plugins",         _("Plug-Ins")));
 
-	menus_action_group->add( Gtk::Action::create("menu-window", _("_Window")));
-	menus_action_group->add( Gtk::Action::create("menu-arrange", _("_Arrange")));
-	menus_action_group->add( Gtk::Action::create("menu-workspace", _("Work_space")));
+	menus_action_group->add( Gtk::Action::create("menu-window",          _("_Window")));
+	menus_action_group->add( Gtk::Action::create("menu-arrange",         _("_Arrange")));
+	menus_action_group->add( Gtk::Action::create("menu-workspace",       _("Work_space")));
 
-	menus_action_group->add( Gtk::Action::create("menu-help", _("_Help")) );
+	menus_action_group->add( Gtk::Action::create("menu-help",            _("_Help")));
 
-	menus_action_group->add(Gtk::Action::create("menu-keyframe","Keyframe"));
+	menus_action_group->add(Gtk::Action::create("menu-keyframe",          "Keyframe"));
 
 	// Add the synfigapp actions (layer panel toolbar items, etc...)
 	synfigapp::Action::Book::iterator iter;
@@ -897,47 +983,48 @@ init_ui_manager()
 #define DEFINE_ACTION(x,stock) { Glib::RefPtr<Gtk::Action> action( Gtk::Action::create(x, stock) ); actions_action_group->add(action); }
 
 // actions in File menu
-DEFINE_ACTION("new", Gtk::StockID("synfig-new"));
-DEFINE_ACTION("open", Gtk::StockID("synfig-open"));
-DEFINE_ACTION("save", Gtk::StockID("synfig-save"));
-DEFINE_ACTION("save-as", Gtk::StockID("synfig-save_as"));
-DEFINE_ACTION("save-all", Gtk::StockID("synfig-save_all"));
-DEFINE_ACTION("revert", Gtk::Stock::REVERT_TO_SAVED);
-DEFINE_ACTION("import", _("Import..."));
-DEFINE_ACTION("render", _("Render..."));
-DEFINE_ACTION("preview", _("Preview..."));
+DEFINE_ACTION("new",            Gtk::StockID("synfig-new"));
+DEFINE_ACTION("open",           Gtk::StockID("synfig-open"));
+DEFINE_ACTION("save",           Gtk::StockID("synfig-save"));
+DEFINE_ACTION("save-as",        Gtk::StockID("synfig-save_as"));
+DEFINE_ACTION("save-all",       Gtk::StockID("synfig-save_all"));
+DEFINE_ACTION("revert",         Gtk::Stock::REVERT_TO_SAVED);
+DEFINE_ACTION("import",         _("Import..."));
+DEFINE_ACTION("render",         _("Render..."));
+DEFINE_ACTION("preview",        _("Preview..."));
 DEFINE_ACTION("close-document", _("Close Document"));
-DEFINE_ACTION("quit", Gtk::Stock::QUIT);
+DEFINE_ACTION("quit",           Gtk::Stock::QUIT);
 
 // actions in Edit menu
-DEFINE_ACTION("undo", Gtk::StockID("synfig-undo"));
-DEFINE_ACTION("redo", Gtk::StockID("synfig-redo"));
-DEFINE_ACTION("copy", Gtk::Stock::COPY);
-DEFINE_ACTION("cut", Gtk::Stock::CUT);
-DEFINE_ACTION("paste", Gtk::Stock::PASTE);
-DEFINE_ACTION("select-all-ducks", _("Select All Handles"));
-DEFINE_ACTION("unselect-all-ducks", _("Unselect All Handles"));
-DEFINE_ACTION("select-all-layers", _("Select All Layers"));
-DEFINE_ACTION("unselect-all-layers", _("Unselect All Layers"));
-DEFINE_ACTION("input-devices", _("Input Devices..."));
-DEFINE_ACTION("setup", _("Preferences..."));
+DEFINE_ACTION("undo",                     Gtk::StockID("synfig-undo"));
+DEFINE_ACTION("redo",                     Gtk::StockID("synfig-redo"));
+DEFINE_ACTION("copy",                     Gtk::Stock::COPY);
+DEFINE_ACTION("cut",                      Gtk::Stock::CUT);
+DEFINE_ACTION("paste",                    Gtk::Stock::PASTE);
+DEFINE_ACTION("select-all-ducks",         _("Select All Handles"));
+DEFINE_ACTION("unselect-all-ducks",       _("Unselect All Handles"));
+DEFINE_ACTION("select-all-layers",        _("Select All Layers"));
+DEFINE_ACTION("unselect-all-layers",      _("Unselect All Layers"));
+DEFINE_ACTION("input-devices",            _("Input Devices..."));
+DEFINE_ACTION("setup",                    _("Preferences..."));
 DEFINE_ACTION("restore-default-settings", _("Restore Defaults"));
 
 // actions in View menu
-DEFINE_ACTION("toggle-mainwin-menubar", _("Menubar"));
-DEFINE_ACTION("toggle-mainwin-toolbar", _("Toolbar"));
+DEFINE_ACTION("toggle-mainwin-menubar",   _("Menubar"));
+DEFINE_ACTION("toggle-mainwin-toolbar",   _("Toolbar"));
 
-DEFINE_ACTION("mask-none-ducks", _("Toggle None/Last visible Handles"));
-DEFINE_ACTION("mask-position-ducks", _("Show Position Handles"));
-DEFINE_ACTION("mask-vertex-ducks", _("Show Vertex Handles"));
-DEFINE_ACTION("mask-tangent-ducks", _("Show Tangent Handles"));
-DEFINE_ACTION("mask-radius-ducks", _("Show Radius Handles"));
-DEFINE_ACTION("mask-width-ducks", _("Show Width Handles"));
+DEFINE_ACTION("mask-none-ducks",                _("Toggle None/Last visible Handles"));
+DEFINE_ACTION("mask-position-ducks",            _("Show Position Handles"));
+DEFINE_ACTION("mask-vertex-ducks",              _("Show Vertex Handles"));
+DEFINE_ACTION("mask-tangent-ducks",             _("Show Tangent Handles"));
+DEFINE_ACTION("mask-radius-ducks",              _("Show Radius Handles"));
+DEFINE_ACTION("mask-width-ducks",               _("Show Width Handles"));
 DEFINE_ACTION("mask-widthpoint-position-ducks", _("Show WidthPoints Position Handles"));
-DEFINE_ACTION("mask-angle-ducks", _("Show Angle Handles"));
-DEFINE_ACTION("mask-bone-setup-ducks", _("Show Bone Setup Handles"));
-DEFINE_ACTION("mask-bone-recursive-ducks", _("Show Recursive Scale Bone Handles"));
-DEFINE_ACTION("mask-bone-ducks", _("Next Bone Handles"));
+DEFINE_ACTION("mask-angle-ducks",               _("Show Angle Handles"));
+DEFINE_ACTION("mask-bone-setup-ducks",          _("Show Bone Setup Handles"));
+DEFINE_ACTION("mask-bone-recursive-ducks",      _("Show Recursive Scale Bone Handles"));
+DEFINE_ACTION("mask-bone-ducks",                _("Next Bone Handles"));
+
 DEFINE_ACTION("quality-00", _("Use Parametric Renderer"));
 DEFINE_ACTION("quality-01", _("Use Quality Level 1"));
 DEFINE_ACTION("quality-02", _("Use Quality Level 2"));
@@ -958,32 +1045,34 @@ DEFINE_ACTION("play", _("Play"));
 // icon. the internal code is still using stop.
 DEFINE_ACTION("stop", _("Pause"));
 
-DEFINE_ACTION("toggle-grid-show", _("Toggle Grid Show"));
-DEFINE_ACTION("toggle-grid-snap", _("Toggle Grid Snap"));
+DEFINE_ACTION("toggle-grid-show",  _("Toggle Grid Show"));
+DEFINE_ACTION("toggle-grid-snap",  _("Toggle Grid Snap"));
 DEFINE_ACTION("toggle-guide-show", _("Toggle Guide Show"));
 DEFINE_ACTION("toggle-guide-snap", _("Toggle Guide Snap"));
-DEFINE_ACTION("toggle-low-res", _("Toggle Low-Res"));
+DEFINE_ACTION("toggle-low-res",    _("Toggle Low-Res"));
+
 DEFINE_ACTION("decrease-low-res-pixel-size", _("Decrease Low-Res Pixel Size"));
 DEFINE_ACTION("increase-low-res-pixel-size", _("Increase Low-Res Pixel Size"));
-DEFINE_ACTION("toggle-onion-skin", _("Toggle Onion Skin"));
-DEFINE_ACTION("canvas-zoom-in", Gtk::StockID("gtk-zoom-in"));
-DEFINE_ACTION("canvas-zoom-out", Gtk::StockID("gtk-zoom-out"));
-DEFINE_ACTION("canvas-zoom-fit", Gtk::StockID("gtk-zoom-fit"));
-DEFINE_ACTION("canvas-zoom-100", Gtk::StockID("gtk-zoom-100"));
-DEFINE_ACTION("time-zoom-in", Gtk::StockID("gtk-zoom-in"));
-DEFINE_ACTION("time-zoom-out", Gtk::StockID("gtk-zoom-out"));
-DEFINE_ACTION("jump-next-keyframe", _("Seek to Next Keyframe"));
-DEFINE_ACTION("jump-prev-keyframe", _("Seek to previous Keyframe"));
-DEFINE_ACTION("seek-next-frame", _("Seek to Next Frame"));
-DEFINE_ACTION("seek-prev-frame", _("Seek to Previous Frame"));
-DEFINE_ACTION("seek-next-second", _("Seek Forward"));
-DEFINE_ACTION("seek-prev-second", _("Seek Backward"));
-DEFINE_ACTION("seek-begin", _("Seek to Begin"));
-DEFINE_ACTION("seek-end", _("Seek to End"));
+DEFINE_ACTION("toggle-background-rendering", _("Toggle Background Rendering"));
+DEFINE_ACTION("toggle-onion-skin",           _("Toggle Onion Skin"));
+DEFINE_ACTION("canvas-zoom-in",              Gtk::StockID("gtk-zoom-in"));
+DEFINE_ACTION("canvas-zoom-out",             Gtk::StockID("gtk-zoom-out"));
+DEFINE_ACTION("canvas-zoom-fit",             Gtk::StockID("gtk-zoom-fit"));
+DEFINE_ACTION("canvas-zoom-100",             Gtk::StockID("gtk-zoom-100"));
+DEFINE_ACTION("time-zoom-in",                Gtk::StockID("gtk-zoom-in"));
+DEFINE_ACTION("time-zoom-out",               Gtk::StockID("gtk-zoom-out"));
+DEFINE_ACTION("jump-next-keyframe",          _("Seek to Next Keyframe"));
+DEFINE_ACTION("jump-prev-keyframe",          _("Seek to previous Keyframe"));
+DEFINE_ACTION("seek-next-frame",             _("Seek to Next Frame"));
+DEFINE_ACTION("seek-prev-frame",             _("Seek to Previous Frame"));
+DEFINE_ACTION("seek-next-second",            _("Seek Forward"));
+DEFINE_ACTION("seek-prev-second",            _("Seek Backward"));
+DEFINE_ACTION("seek-begin",                  _("Seek to Begin"));
+DEFINE_ACTION("seek-end",                    _("Seek to End"));
 
 // actions in Canvas menu
 DEFINE_ACTION("properties", _("Properties..."));
-DEFINE_ACTION("options", _("Options..."));
+DEFINE_ACTION("options",    _("Options..."));
 
 // actions in Layer menu
 DEFINE_ACTION("amount-inc", _("Increase Layer Amount"))
@@ -991,35 +1080,35 @@ DEFINE_ACTION("amount-dec", _("Decrease Layer Amount"))
 
 // actions in Window menu
 DEFINE_ACTION("workspace-compositing", _("Compositing"));
-DEFINE_ACTION("workspace-default", _("Default"));
-DEFINE_ACTION("workspace-animating", _("Animating"));
-DEFINE_ACTION("dialog-flipbook", _("Preview Dialog"));
-DEFINE_ACTION("panel-toolbox","Toolbox");
-DEFINE_ACTION("panel-tool_options",_("Tool Options"));
-DEFINE_ACTION("panel-history", "History");
-DEFINE_ACTION("panel-canvases",_("Canvas Browser"));
-DEFINE_ACTION("panel-keyframes",_("Keyframes"));
-DEFINE_ACTION("panel-layers",_("Layers"));
-DEFINE_ACTION("panel-params",_("Parameters"));
-DEFINE_ACTION("panel-meta_data",_("Canvas MetaData"));
-DEFINE_ACTION("panel-children",_("Library"));
-DEFINE_ACTION("panel-info",_("Info"));
-DEFINE_ACTION("panel-navigator",_("Navigator"));
-DEFINE_ACTION("panel-timetrack",_("Timetrack"));
-DEFINE_ACTION("panel-curves",_("Graphs"));
-DEFINE_ACTION("panel-groups",_("Sets"));
-DEFINE_ACTION("panel-pal_edit",_("Palette Editor"));
+DEFINE_ACTION("workspace-default",     _("Default"));
+DEFINE_ACTION("workspace-animating",   _("Animating"));
+DEFINE_ACTION("dialog-flipbook",       _("Preview Dialog"));
+DEFINE_ACTION("panel-toolbox",           "Toolbox");
+DEFINE_ACTION("panel-tool_options",    _("Tool Options"));
+DEFINE_ACTION("panel-history",           "History");
+DEFINE_ACTION("panel-canvases",        _("Canvas Browser"));
+DEFINE_ACTION("panel-keyframes",       _("Keyframes"));
+DEFINE_ACTION("panel-layers",          _("Layers"));
+DEFINE_ACTION("panel-params",          _("Parameters"));
+DEFINE_ACTION("panel-meta_data",       _("Canvas MetaData"));
+DEFINE_ACTION("panel-children",        _("Library"));
+DEFINE_ACTION("panel-info",            _("Info"));
+DEFINE_ACTION("panel-navigator",       _("Navigator"));
+DEFINE_ACTION("panel-timetrack",       _("Timetrack"));
+DEFINE_ACTION("panel-curves",          _("Graphs"));
+DEFINE_ACTION("panel-groups",          _("Sets"));
+DEFINE_ACTION("panel-pal_edit",        _("Palette Editor"));
 
 // actions in Help menu
-DEFINE_ACTION("help", Gtk::Stock::HELP);
+DEFINE_ACTION("help",           Gtk::Stock::HELP);
 DEFINE_ACTION("help-tutorials", Gtk::Stock::HELP);
 DEFINE_ACTION("help-reference", Gtk::Stock::HELP);
-DEFINE_ACTION("help-faq", Gtk::Stock::HELP);
-DEFINE_ACTION("help-support", Gtk::Stock::HELP);
-DEFINE_ACTION("help-about", Gtk::StockID("synfig-about"));
+DEFINE_ACTION("help-faq",       Gtk::Stock::HELP);
+DEFINE_ACTION("help-support",   Gtk::Stock::HELP);
+DEFINE_ACTION("help-about",     Gtk::StockID("synfig-about"));
 
 // actions: Keyframe
-DEFINE_ACTION("keyframe-properties","Properties");
+DEFINE_ACTION("keyframe-properties", "Properties");
 
 
 //Layout the actions in the main menu (caret menu, right click on canvas menu) and toolbar:
@@ -1109,6 +1198,7 @@ DEFINE_ACTION("keyframe-properties","Properties");
 "		<menuitem action='toggle-guide-show'/>"
 "		<menuitem action='toggle-guide-snap'/>"
 "		<menuitem action='toggle-low-res'/>"
+"		<menuitem action='toggle-background-rendering'/>"
 "		<menuitem action='toggle-onion-skin'/>"
 "		<separator name='sep-view3'/>"
 "		<menuitem action='canvas-zoom-in'/>"
@@ -1278,7 +1368,8 @@ DEFINE_ACTION("keyframe-properties","Properties");
 	ACCEL("F8",									"<Actions>/canvasview/properties"					);
 	ACCEL("F12",									"<Actions>/canvasview/options"						);
 	ACCEL("<control>i",								"<Actions>/canvasview/import"						);
-	ACCEL2(Gtk::AccelKey(GDK_KEY_Escape,static_cast<Gdk::ModifierType>(0), 		"<Actions>/canvasview/stop"						));
+	//ACCEL2(Gtk::AccelKey(GDK_KEY_Escape,static_cast<Gdk::ModifierType>(0), 		"<Actions>/canvasview/stop"						));
+	ACCEL2(Gtk::AccelKey(GDK_KEY_Escape, Gdk::ModifierType(), 		"<Actions>/canvasview/stop"						));
 	ACCEL("<Control>g",								"<Actions>/canvasview/toggle-grid-show"					);
 	ACCEL("<Control>l",								"<Actions>/canvasview/toggle-grid-snap"					);
 	ACCEL("<Control>n",								"<Actions>/mainwindow/new"						);
@@ -1348,6 +1439,7 @@ App::App(const synfig::String& basepath, int *argc, char ***argv):
 	IconController(basepath)
 {
 
+	Glib::init(); // need to use Gio functions before app is started
 	app_base_path_=etl::dirname(basepath);
 
 	// Set ui language
@@ -1357,24 +1449,40 @@ App::App(const synfig::String& basepath, int *argc, char ***argv):
 		Glib::setenv ("LANGUAGE",  App::ui_language.c_str(), 1);
 	}
 
-	std::string path_to_icons;
+	// paths
 #ifdef _WIN32
-	path_to_icons=basepath+ETL_DIRECTORY_SEPARATOR+".."+ETL_DIRECTORY_SEPARATOR+IMAGE_DIR;
+	String path_to_icons = get_base_path()
+		+ ETL_DIRECTORY_SEPARATOR + IMAGE_DIR;
+	String path_to_plugins = get_base_path()
+		+ ETL_DIRECTORY_SEPARATOR + PLUGIN_DIR;
+	String path_to_sounds = get_base_path()
+		+ ETL_DIRECTORY_SEPARATOR + SOUND_DIR;
 #else
-	path_to_icons=IMAGE_DIR;
+	String path_to_icons = IMAGE_DIR;
+	String path_to_plugins = PLUGIN_DIR;
+	String path_to_sounds = SOUND_DIR;
 #endif
-	char* synfig_root=getenv("SYNFIG_ROOT");
-	if(synfig_root) {
-		path_to_icons=synfig_root;
-		path_to_icons+=ETL_DIRECTORY_SEPARATOR;
-		path_to_icons+="share";
-		path_to_icons+=ETL_DIRECTORY_SEPARATOR;
-		path_to_icons+="pixmaps";
-		path_to_icons+=ETL_DIRECTORY_SEPARATOR;
-		path_to_icons+="synfigstudio";
+
+	if (char* synfig_root = getenv("SYNFIG_ROOT")) {
+		path_to_icons = String(synfig_root)
+			+ ETL_DIRECTORY_SEPARATOR + "share"
+			+ ETL_DIRECTORY_SEPARATOR + "pixmaps"
+			+ ETL_DIRECTORY_SEPARATOR + "synfigstudio";
+		path_to_plugins = String(synfig_root)
+			+ ETL_DIRECTORY_SEPARATOR + "share"
+			+ ETL_DIRECTORY_SEPARATOR + "synfig"
+			+ ETL_DIRECTORY_SEPARATOR + "plugins";
+		path_to_sounds = String(synfig_root)
+			+ ETL_DIRECTORY_SEPARATOR + "share"
+			+ ETL_DIRECTORY_SEPARATOR + "synfig"
+			+ ETL_DIRECTORY_SEPARATOR + "sounds";
 	}
-	path_to_icons+=ETL_DIRECTORY_SEPARATOR;
-	init_icons(path_to_icons);
+
+	String path_to_user_plugins = synfigapp::Main::get_user_app_directory()
+		+ ETL_DIRECTORY_SEPARATOR + "plugins";
+	
+	// icons
+	init_icons(path_to_icons + ETL_DIRECTORY_SEPARATOR);
 
 	ui_interface_=new GlobalUIInterface();
 
@@ -1384,6 +1492,13 @@ App::App(const synfig::String& basepath, int *argc, char ***argv):
 		Glib::thread_init();
 
 	distance_system=Distance::SYSTEM_PIXELS;
+	
+#ifdef _WIN32
+	// Do not show "No disc in drive" errors
+	// - https://github.com/synfig/synfig/issues/489
+	// - https://github.com/synfig/synfig/issues/724
+	SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+#endif
 
 	if(mkdir(synfigapp::Main::get_user_app_directory().c_str(),ACCESSPERMS)<0)
 	{
@@ -1456,28 +1571,14 @@ App::App(const synfig::String& basepath, int *argc, char ***argv):
 		// Set main window menu and toolbar
 		load_settings("pref.enable_mainwin_menubar");
 
+		load_settings("pref.default_background_layer_type");
+		load_settings("pref.default_background_layer_color");
+		load_settings("pref.default_background_layer_image");
+		load_settings("pref.preview_background_color");
+
 		studio_init_cb.task(_("Loading Plugins..."));
-
-		std::string pluginsprefix;
-
-		// system plugins path
-#ifdef _WIN32
-		pluginsprefix=App::get_base_path()+ETL_DIRECTORY_SEPARATOR+PLUGIN_DIR;
-#else
-		pluginsprefix=PLUGIN_DIR;
-#endif
-		char* synfig_root=getenv("SYNFIG_ROOT");
-		if(synfig_root) {
-			pluginsprefix=std::string(synfig_root)
-				+ETL_DIRECTORY_SEPARATOR+"share"
-				+ETL_DIRECTORY_SEPARATOR+"synfig"
-				+ETL_DIRECTORY_SEPARATOR+"plugins";
-		}
-		plugin_manager.load_dir(pluginsprefix);
-
-		// user plugins path
-		pluginsprefix=Glib::build_filename(synfigapp::Main::get_user_app_directory(),"plugins");
-		plugin_manager.load_dir(pluginsprefix);
+		plugin_manager.load_dir(path_to_plugins);
+		plugin_manager.load_dir(path_to_user_plugins);
 
 		studio_init_cb.task(_("Init UI Manager..."));
 		App::ui_manager_=studio::UIManager::create();
@@ -1740,6 +1841,14 @@ App::App(const synfig::String& basepath, int *argc, char ***argv):
 	{
 		get_ui_interface()->error(_("Unknown exception caught when constructing App.\nThis software may be unstable."));
 	}
+
+	// Load sound effects
+	sound_render_done = new SoundProcessor();
+	sound_render_done->addSound(
+		SoundProcessor::PlayOptions(),
+		SoundProcessor::Sound(path_to_sounds + ETL_DIRECTORY_SEPARATOR + "renderdone.wav") );
+	
+	App::dock_info_ = dock_info;
 }
 
 StateManager* App::get_state_manager() { return state_manager; }
@@ -1781,6 +1890,9 @@ App::~App()
 	delete dock_manager;
 
 	instance_list.clear();
+
+	if (sound_render_done) delete sound_render_done;
+	sound_render_done = NULL;
 }
 
 synfig::String
@@ -1928,7 +2040,7 @@ App::save_settings()
 			for(iter=recent_files.rbegin();iter!=recent_files.rend();iter++)
 				file<<(*iter).c_str()<<endl;
 		}while(0);
-		std::string filename=get_config_file("settings-1.0");
+		std::string filename=get_config_file("settings-1.3");
 		synfigapp::Main::settings().save_to_file(filename);
 
 	}
@@ -1945,7 +2057,7 @@ App::load_settings(const synfig::String& key_filter)
 	try
 	{
 		synfig::ChangeLocale change_locale(LC_NUMERIC, "C");
-		std::string filename=get_config_file("settings-1.0");
+		std::string filename=get_config_file("settings-1.3");
 		ret=synfigapp::Main::settings().load_from_file(filename, key_filter);
 	}
 	catch(...)
@@ -2139,30 +2251,36 @@ App::set_workspace_animating()
 void
 App::restore_default_settings()
 {
-	// TODO autorecover default auto_recover_backup_interval
-	synfigapp::Main::settings().set_value("pref.distance_system","pt");
-	synfigapp::Main::settings().set_value("pref.use_colorspace_gamma","1");
+	synfigapp::Main::settings().set_value("pref.distance_system",               "pt");
+	synfigapp::Main::settings().set_value("pref.use_colorspace_gamma",           "1");
 #ifdef SINGLE_THREADED
-	synfigapp::Main::settings().set_value("pref.use_single_threaded","1");
+	synfigapp::Main::settings().set_value("pref.use_single_threaded",            "1");
 #endif
-	synfigapp::Main::settings().set_value("pref.restrict_radius_ducks","1");
-	synfigapp::Main::settings().set_value("pref.resize_imported_images","0");
-	synfigapp::Main::settings().set_value("pref.enable_experimental_features","0");
-	synfigapp::Main::settings().set_value("pref.custom_filename_prefix",DEFAULT_FILENAME_PREFIX);
-	synfigapp::Main::settings().set_value("pref.ui_language", "os_LANG");
-	synfigapp::Main::settings().set_value("pref.preferred_x_size","480");
-	synfigapp::Main::settings().set_value("pref.preferred_y_size","270");
-	synfigapp::Main::settings().set_value("pref.predefined_size",DEFAULT_PREDEFINED_SIZE);
-	synfigapp::Main::settings().set_value("pref.preferred_fps","24.0");
-	synfigapp::Main::settings().set_value("pref.predefined_fps",DEFAULT_PREDEFINED_FPS);
-	synfigapp::Main::settings().set_value("sequence_separator", ".");
-	synfigapp::Main::settings().set_value("navigator_renderer", "");
-	synfigapp::Main::settings().set_value("workarea_renderer", "");
-	synfigapp::Main::settings().set_value("pref.enable_mainwin_menubar", "1");
+	synfigapp::Main::settings().set_value("pref.restrict_radius_ducks",          "1");
+	synfigapp::Main::settings().set_value("pref.resize_imported_images",         "0");
+	synfigapp::Main::settings().set_value("pref.enable_experimental_features",   "0");
+	synfigapp::Main::settings().set_value("pref.custom_filename_prefix",         DEFAULT_FILENAME_PREFIX);
+	synfigapp::Main::settings().set_value("pref.ui_language",                    "os_LANG");
+	synfigapp::Main::settings().set_value("pref.preferred_x_size",               "480");
+	synfigapp::Main::settings().set_value("pref.preferred_y_size",               "270");
+	synfigapp::Main::settings().set_value("pref.predefined_size",                DEFAULT_PREDEFINED_SIZE);
+	synfigapp::Main::settings().set_value("pref.preferred_fps",                  "24.0");
+	synfigapp::Main::settings().set_value("pref.predefined_fps",                 DEFAULT_PREDEFINED_FPS);
+	synfigapp::Main::settings().set_value("pref.sequence_separator",             ".");
+	synfigapp::Main::settings().set_value("pref.navigator_renderer",             "");
+	synfigapp::Main::settings().set_value("pref.workarea_renderer",              "");
+	synfigapp::Main::settings().set_value("pref.use_render_done_sound",          "1");
+	synfigapp::Main::settings().set_value("pref.default_background_layer_type",  "none");
+	synfigapp::Main::settings().set_value("pref.default_background_layer_color", "1.000000 1.000000 1.000000 1.000000"); //White
+	synfigapp::Main::settings().set_value("pref.preview_background_color",       "0.742187 0.742187 0.742187 1.000000"); //X11 Gray
+
+	synfigapp::Main::settings().set_value("pref.default_background_layer_image", "");
+	synfigapp::Main::settings().set_value("pref.enable_mainwin_menubar",         "1");
 	ostringstream temp;
 	temp << Duck::STRUCT_DEFAULT;
-	synfigapp::Main::settings().set_value("pref.ui_handle_tooltip_flag", temp.str());
-	synfigapp::Main::settings().set_value("pref.auto_recover_backup", "1");
+	synfigapp::Main::settings().set_value("pref.ui_handle_tooltip_flag",         temp.str());
+	synfigapp::Main::settings().set_value("pref.autosave_backup",                "1");
+	synfigapp::Main::settings().set_value("pref.autosave_backup_interval",       "15000");
 }
 
 void
@@ -2187,6 +2305,7 @@ App::apply_gtk_settings()
 	// Fix GtkPaned (big margin makes it hard to grab first keyframe))
 	data += "GtkPaned { margin: 2px; }\n";
 	// Fix #348: Synfig's Interface went Too Thick
+	// following css works in gtk since 3.14:
 	data += ".button                            { padding-left: 4px; padding-right: 4px; }\n";
 	data += ".button                            { padding-top: 0px; padding-bottom: 0px; }\n";
 	data += ".button *                          { padding-top: 4px; padding-bottom: 4px; }\n";
@@ -2195,16 +2314,28 @@ App::apply_gtk_settings()
 	data += ".button > GtkLabel                 { padding-top: 0px; padding-bottom: 0px; }\n";
 	data += "GtkComboBox > .button > GtkBox > * { padding-top: 0px; padding-bottom: 0px; }\n";
 	data += ".entry                             { padding-top: 0px; padding-bottom: 0px; }\n";
-	//data += "GtkComboBox GtkCellView { font-size: 10px; }\n";
-	//data += "GtkComboBox * { margin: 0; }\n";
+#if GTKMM_MAJOR_VERSION < 3 || (GTKMM_MAJOR_VERSION == 3 && GTKMM_MINOR_VERSION < 22)
+	// following css works in old versions of gtk
+	data += "button { padding: 0px; }\n";
+#else
+	// following css works for gtk 3.22:
+	data += "entry, spinbutton { min-height: 16px; }\n";
+	data += "button { min-height: 16px; min-width: 16px; padding: 0px; }\n";
+#endif
+	data += "button > box { padding: 5px; }\n";
+	data += "button > image { padding: 5px; }\n";
+	data += "combobox > box > button > box { padding-top: 0px; padding-bottom: 0px; }\n";
 	// Fix #810: Insetsetive context menus on OSX
 	g_object_get (G_OBJECT (gtk_settings), "gtk-theme-name", &theme_name, NULL);
 	if ( String(theme_name) == "Adwaita" )
 		data += ".window-frame, .window-frame:backdrop { box-shadow: none; margin: 0; }\n";
 	if (!data.empty()) {
 		Glib::RefPtr<Gtk::CssProvider> css = Gtk::CssProvider::create();
-		if(not css->load_from_data(data))
-			synfig::info("Failed to load css rules.");
+		try {
+			css->load_from_data(data);
+		} catch (Gtk::CssProviderError &e) {
+			synfig::warning("Failed to load css rules. %s", e.what().c_str());
+		}
 		Glib::RefPtr<Gdk::Screen> screen = Gdk::Screen::get_default();
 		Gtk::StyleContext::add_provider_for_screen(screen,css, GTK_STYLE_PROVIDER_PRIORITY_USER);
 	}
@@ -2306,8 +2437,8 @@ App::show_setup()
 	dialog_setup->show();
 }
 
-gint Signal_Open_Ok(GtkWidget */*widget*/, int *val){*val=1;return 0;}
-gint Signal_Open_Cancel(GtkWidget */*widget*/, int *val){*val=2;return 0;}
+gint Signal_Open_Ok    (GtkWidget */*widget*/, int *val){*val=1; return 0;}
+gint Signal_Open_Cancel(GtkWidget */*widget*/, int *val){*val=2; return 0;}
 
 //#ifdef _WIN32
 //#define USE_WIN32_FILE_DIALOGS 1
@@ -2372,8 +2503,7 @@ App::dialog_open_file(const std::string &title, std::string &filename, std::stri
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path = ".";
-
+		prev_path = Glib::get_home_dir();
 	prev_path = absolute_path(prev_path);
 
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(*App::main_window,
@@ -2382,7 +2512,7 @@ App::dialog_open_file(const std::string &title, std::string &filename, std::stri
 	dialog->set_transient_for(*App::main_window);
 	dialog->set_current_folder(prev_path);
 	dialog->add_button(_("Cancel"), Gtk::RESPONSE_CANCEL)->set_image_from_icon_name("gtk-cancel", Gtk::ICON_SIZE_BUTTON);
-	dialog->add_button(_("Import"),   Gtk::RESPONSE_ACCEPT)->set_image_from_icon_name("gtk-open", Gtk::ICON_SIZE_BUTTON);
+	dialog->add_button(_("Import"), Gtk::RESPONSE_ACCEPT)->set_image_from_icon_name("gtk-open",   Gtk::ICON_SIZE_BUTTON);
 
 	// 0 All supported files
 	// 0.1 Synfig documents. sfg is not supported to import
@@ -2410,7 +2540,11 @@ App::dialog_open_file(const std::string &title, std::string &filename, std::stri
 	filter_supported->add_pattern("*.ogg");
 	filter_supported->add_pattern("*.mp3");
 	filter_supported->add_pattern("*.wav");
-	// 0.4 lipsync files
+	// 0.4 Video files
+	filter_supported->add_pattern("*.avi");
+	filter_supported->add_pattern("*.mp4");
+	filter_supported->add_pattern("*.gif");
+	// 0.5 lipsync files
 	filter_supported->add_pattern("*.pgo");
 
 	// Sub fileters
@@ -2450,12 +2584,20 @@ App::dialog_open_file(const std::string &title, std::string &filename, std::stri
 	filter_audio->add_pattern("*.mp3");
 	filter_audio->add_pattern("*.wav");
 
-	// 4 Lipsync files
+	// 4 Video files
+	Glib::RefPtr<Gtk::FileFilter> filter_video = Gtk::FileFilter::create();
+	filter_video->set_name(_("Video (*.avi, *.mp4)"));
+	filter_video->add_mime_type("video/x-msvideo");
+	filter_video->add_mime_type("video/mp4");
+	filter_video->add_pattern("*.avi");
+	filter_video->add_pattern("*.mp4");
+
+	// 5 Lipsync files
 	Glib::RefPtr<Gtk::FileFilter> filter_lipsync = Gtk::FileFilter::create();
 	filter_lipsync->set_name(_("Lipsync (*.pgo)"));
 	filter_lipsync->add_pattern("*.pgo");
 
-	// 5 Any files
+	// 6 Any files
 	Glib::RefPtr<Gtk::FileFilter> filter_any = Gtk::FileFilter::create();
 	filter_any->set_name(_("Any files"));
 	filter_any->add_pattern("*");
@@ -2465,6 +2607,7 @@ App::dialog_open_file(const std::string &title, std::string &filename, std::stri
 	dialog->add_filter(filter_image);
 	dialog->add_filter(filter_image_list);
 	dialog->add_filter(filter_audio);
+	dialog->add_filter(filter_video);
 	dialog->add_filter(filter_lipsync);
 	dialog->add_filter(filter_any);
 
@@ -2495,8 +2638,7 @@ App::dialog_open_file_spal(const std::string &title, std::string &filename, std:
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path = ".";
-
+		prev_path = Glib::get_home_dir();
 	prev_path = absolute_path(prev_path);
 
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(*App::main_window,
@@ -2520,7 +2662,7 @@ App::dialog_open_file_spal(const std::string &title, std::string &filename, std:
 	dialog->add_filter(filter_spal);
 
 	// ...and add GIMP color palette file too (*.gpl)
-        Glib::RefPtr<Gtk::FileFilter> filter_gpl = Gtk::FileFilter::create();
+	Glib::RefPtr<Gtk::FileFilter> filter_gpl = Gtk::FileFilter::create();
 	filter_gpl->set_name(_("GIMP palette files (*.gpl)"));
 	filter_gpl->add_pattern("*.gpl");
 	dialog->add_filter(filter_gpl);
@@ -2549,8 +2691,7 @@ App::dialog_open_file_sketch(const std::string &title, std::string &filename, st
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path = ".";
-
+		prev_path = Glib::get_home_dir();
 	prev_path = absolute_path(prev_path);
 
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(*App::main_window,
@@ -2592,7 +2733,7 @@ App::dialog_open_file_image(const std::string &title, std::string &filename, std
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path = ".";
+		prev_path = Glib::get_home_dir();
 
 	prev_path = absolute_path(prev_path);
 
@@ -2651,7 +2792,7 @@ App::dialog_open_file_audio(const std::string &title, std::string &filename, std
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path = ".";
+		prev_path = Glib::get_home_dir();
 
 	prev_path = absolute_path(prev_path);
 
@@ -2758,7 +2899,7 @@ App::dialog_open_file_with_history_button(const std::string &title, std::string 
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path = ".";
+		prev_path = Glib::get_home_dir();
 
 	prev_path = absolute_path(prev_path);
 
@@ -2895,7 +3036,7 @@ App::dialog_save_file(const std::string &title, std::string &filename, std::stri
 	synfig::String prev_path;
 
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path=".";
+		prev_path = Glib::get_home_dir();
 
 	prev_path = absolute_path(prev_path);
 
@@ -3031,7 +3172,7 @@ App::dialog_save_file_spal(const std::string &title, std::string &filename, std:
 {
 	synfig::String prev_path;
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path=".";
+		prev_path=Glib::get_home_dir();
 	prev_path = absolute_path(prev_path);
 
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(*App::main_window, title, Gtk::FILE_CHOOSER_ACTION_SAVE);
@@ -3093,7 +3234,7 @@ App::dialog_save_file_sketch(const std::string &title, std::string &filename, st
 {
 	synfig::String prev_path;
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path=".";
+		prev_path=Glib::get_home_dir();
 	prev_path = absolute_path(prev_path);
 
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(*App::main_window, title, Gtk::FILE_CHOOSER_ACTION_SAVE);
@@ -3156,7 +3297,7 @@ App::dialog_save_file_render(const std::string &title, std::string &filename, st
 {
 	synfig::String prev_path;
 	if(!_preferences.get_value(preference, prev_path))
-		prev_path=".";
+		prev_path=Glib::get_home_dir();
 	prev_path = absolute_path(prev_path);
 
 	Gtk::FileChooserDialog *dialog = new Gtk::FileChooserDialog(*App::main_window, title, Gtk::FILE_CHOOSER_ACTION_SAVE);
@@ -3280,7 +3421,7 @@ App::dialog_message_1b(
 	const std::string &button1,
 	const std::string &long_details)
 {
-	Gtk::MessageType _type;
+	Gtk::MessageType _type = Gtk::MESSAGE_OTHER; // default
 	if (type == "INFO")
 		_type = Gtk::MESSAGE_INFO;
 	if (type == "WARNING")
@@ -3365,7 +3506,13 @@ App::dialog_message_3b(const std::string &message,
 static bool
 try_open_uri(const std::string &uri)
 {
+#if GTK_CHECK_VERSION(3, 22, 0)
+	return gtk_show_uri_on_window(
+		App::main_window ? App::main_window->gobj() : NULL,
+		uri.c_str(), GDK_CURRENT_TIME, NULL );
+#else
 	return gtk_show_uri(NULL, uri.c_str(), GDK_CURRENT_TIME, NULL);
+#endif
 }
 
 void
@@ -3532,10 +3679,10 @@ App::open_as(std::string filename,std::string as,synfig::FileContainerZip::file_
 
 		// wrap into temporary file system
 		canvas_file_system = wrap_into_temporary_filesystem(canvas_file_system, filename, as, truncate_storage_size);
-		
+
 		// file to open inside canvas file-system
 		String canvas_filename = CanvasFileNaming::project_file(filename);
-		
+
 		etl::handle<synfig::Canvas> canvas = open_canvas_as(canvas_file_system ->get_identifier(canvas_filename), as, errors, warnings);
 		if(canvas && get_instance(canvas))
 		{
@@ -3630,7 +3777,11 @@ App::open_from_temporary_filesystem(std::string temporary_filename)
 		String truncate = file_system_temporary->get_meta("truncate");
 		if (filename.empty() || as.empty() || truncate.empty())
 			throw (String)strprintf(_("Original filename was not set in temporary container \"%s\"\n\n"), temporary_filename.c_str());
+#ifdef __APPLE__
+		FileContainerZip::file_size_t truncate_storage_size = atoll(truncate.c_str());
+#else
 		FileContainerZip::file_size_t truncate_storage_size = stoll(truncate);
+#endif
 
 		// make canvas file-system
 		FileSystem::Handle canvas_container = CanvasFileNaming::make_filesystem_container(filename, truncate_storage_size);
@@ -3735,8 +3886,8 @@ App::new_instance()
 	canvas->rend_desc().set_y_res(DPI2DPM(72.0f));
 	// The top left and botton right positions are expressed in units
 	// Original convention is that 1 unit = 60 pixels
-	canvas->rend_desc().set_tl(Vector(-(preferred_x_size/60.0)/2.0,(preferred_y_size/60.0)/2.0));
-	canvas->rend_desc().set_br(Vector((preferred_x_size/60.0)/2.0,-(preferred_y_size/60.0)/2.0));
+	canvas->rend_desc().set_tl(Vector(-(preferred_x_size/60.0)/2.0,  (preferred_y_size/60.0)/2.0));
+	canvas->rend_desc().set_br(Vector( (preferred_x_size/60.0)/2.0, -(preferred_y_size/60.0)/2.0));
 	canvas->rend_desc().set_w(preferred_x_size);
 	canvas->rend_desc().set_h(preferred_y_size);
 	canvas->rend_desc().set_antialias(1);
@@ -3744,7 +3895,7 @@ App::new_instance()
 	canvas->set_file_name(filename);
 	canvas->keyframe_list().add(synfig::Keyframe());
 
-	FileSystem::Handle container = FileSystemNative::instance();
+	FileSystem::Handle container = new FileSystemEmpty();
 	FileSystem::Handle file_system = CanvasFileNaming::make_filesystem(container);
 	file_system = wrap_into_temporary_filesystem(file_system, filename, filename);
 
@@ -3753,6 +3904,69 @@ App::new_instance()
 	canvas->set_identifier(file_system->get_identifier(canvas_filename));
 
 	handle<Instance> instance = Instance::create(canvas, container);
+
+    if (App::default_background_layer_type == "solid_color")
+    {
+		//Create a SolidColor layer
+		synfig::Layer::Handle layer(instance->find_canvas_interface(canvas)->add_layer_to("SolidColor",
+			                        canvas,
+			                        0)); //target_depth
+
+		//Rename it as Background
+		synfigapp::Action::Handle action_LayerSetDesc(synfigapp::Action::create("LayerSetDesc"));
+		if (action_LayerSetDesc) {
+			action_LayerSetDesc->set_param("canvas",           canvas);
+			action_LayerSetDesc->set_param("canvas_interface", instance->find_canvas_interface(canvas));
+			action_LayerSetDesc->set_param("layer",            layer);
+			action_LayerSetDesc->set_param("new_description",  "Background");
+			App::get_selected_canvas_view()->canvas_interface()->get_instance()->perform_action(action_LayerSetDesc);
+		}
+
+		//Change its color to the selected one
+		synfigapp::Action::Handle action_LayerParamSet(synfigapp::Action::create("LayerParamSet"));
+		if (action_LayerParamSet) {
+			action_LayerParamSet->set_param("canvas",           canvas);
+			action_LayerParamSet->set_param("canvas_interface", instance->find_canvas_interface(canvas));
+			action_LayerParamSet->set_param("layer",            layer);
+			action_LayerParamSet->set_param("param",            "color");
+			action_LayerParamSet->set_param("new_value",        ValueBase(App::default_background_layer_color));
+			App::get_selected_canvas_view()->canvas_interface()->get_instance()->perform_action(action_LayerParamSet);
+		}
+
+	}
+	else if (App::default_background_layer_type == "image")
+	{
+		String errors, warnings;
+		instance->find_canvas_interface(canvas)->import(App::default_background_layer_image,
+		                                                errors,
+		                                                warnings,
+		                                                App::resize_imported_images);
+
+		synfig::Layer::Handle layer = instance->find_canvas_interface(canvas)->get_selection_manager()->get_selected_layer();
+
+		//Rename it as Background
+		synfigapp::Action::Handle action_LayerSetDesc(synfigapp::Action::create("LayerSetDesc"));
+		if (action_LayerSetDesc) {
+			action_LayerSetDesc->set_param("canvas",           canvas);
+			action_LayerSetDesc->set_param("canvas_interface", instance->find_canvas_interface(canvas));
+			action_LayerSetDesc->set_param("layer",            layer);
+			action_LayerSetDesc->set_param("new_description",  "Background");
+			App::get_selected_canvas_view()->canvas_interface()->get_instance()->perform_action(action_LayerSetDesc);
+		}
+
+		if (warnings != "")
+			App::dialog_message_1b(
+				"WARNING",
+				etl::strprintf("%s:\n\n%s", _("Warning"), warnings.c_str()),
+				"details",
+				_("Close"));
+		if (errors != "")
+			App::dialog_message_1b(
+				"ERROR",
+				etl::strprintf("%s:\n\n%s", _("Error"), errors.c_str()),
+				"details",
+				_("Close"));
+	}
 
 	if (getenv("SYNFIG_AUTO_ADD_SKELETON_LAYER"))
 		instance->find_canvas_view(canvas)->add_layer("skeleton");

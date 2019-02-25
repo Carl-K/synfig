@@ -108,14 +108,12 @@ vstrprintf(const char *format, va_list args)
 {
 #ifdef HAVE_VASPRINTF	// This is the preferred method (and safest)
 	char *buffer;
-	std::string ret;
-	int i=vasprintf(&buffer,format,args);
-	if (i>-1)
-	{
-		ret=buffer;
-		free(buffer);
-	}
-	return ret;
+	int count = vasprintf(&buffer,format,args);
+	if (count < 0) return ""; // error occured
+
+	std::string rv(buffer, count); // passing size (count) for faster copying
+	free(buffer);
+	return rv;
 #else
 #ifdef HAVE_VSNPRINTF	// This is the secondary method (Safe, but bulky)
 #warning etl::vstrprintf() has a maximum size of ETL_STRPRINTF_MAX_LENGTH in this configuration.
@@ -147,7 +145,11 @@ strprintf(const char *format, ...)
 {
 	va_list args;
 	va_start(args,format);
-	return vstrprintf(format,args);
+	//TODO: use g_vasprintf (available on all platforms)
+	const std::string buf = vstrprintf(format, args);
+	va_end(args);
+	return buf;
+	
 }
 
 #ifndef ETL_NO_VSTRSCANF
@@ -162,7 +164,9 @@ strscanf(const std::string &data, const char*format, ...)
 {
 	va_list args;
 	va_start(args,format);
-	return vstrscanf(data, format,args);
+	const int buf = vstrscanf(data, format, args);
+	va_end(args);
+	return buf;
 }
 #else
 
@@ -191,7 +195,9 @@ basename(const std::string &str)
 	if(str.size() == 1 && is_separator(str[0]))
 		return str;
 
-	if(is_separator((&*str.end())[-1]))
+	//if(is_separator((&*str.end())[-1]))
+	//if (is_separator(*str.rbegin()))
+	if(is_separator(*(str.end()-1)))
 		iter=str.end()-2;
 	else
 		iter=str.end()-1;
@@ -203,7 +209,8 @@ basename(const std::string &str)
 	if (is_separator(*iter))
 		iter++;
 
-	if(is_separator((&*str.end())[-1]))
+	//if(is_separator((&*str.end())[-1]))
+	if (is_separator(*(str.end()-1)))	
 		return std::string(iter,str.end()-1);
 
 	return std::string(iter,str.end());
@@ -220,7 +227,9 @@ dirname(const std::string &str)
 	if(str.size() == 1 && is_separator(str[0]))
 		return str;
 
-	if(is_separator((&*str.end())[-1]))
+	//if(is_separator((&*str.end())[-1]))
+	if(is_separator(*(str.end()-1)))
+	//if (is_separator(*str.rbegin()))
 		iter=str.end()-2;
 	else
 		iter=str.end()-1;

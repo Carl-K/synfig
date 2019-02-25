@@ -184,7 +184,7 @@ synfig::Target_Cairo::render(ProgressCallback *cb)
 		if(cb)cb->error(_("Caught string :")+str);
 		return false;
 	}
-	catch(std::bad_alloc)
+	catch(std::bad_alloc&)
 	{
 		if(cb)cb->error(_("Ran out of memory (Probably a bug)"));
 		return false;
@@ -211,7 +211,7 @@ Target_Cairo::put_surface(cairo_surface_t *surface, ProgressCallback *cb)
 }
 
 void
-Target_Cairo::gamma_filter(cairo_surface_t *surface, const synfig::Gamma gamma)
+Target_Cairo::gamma_filter(cairo_surface_t *surface, const synfig::Gamma &gamma)
 {
 	CairoSurface cairo_s;
 	cairo_s.set_cairo_surface(surface);

@@ -29,6 +29,9 @@ set(IMG_SOURCE_animate_play_icon framedial_icons 6)
 set(IMG_SOURCE_animate_stop_icon framedial_icons 7)
 set(IMG_SOURCE_animate_pause_icon framedial_icons 8)
 set(IMG_SOURCE_animate_loop_icon framedial_icons 9)
+set(IMG_SOURCE_animate_bounds_icon framedial_icons 10)
+set(IMG_SOURCE_animate_bound_lower_icon framedial_icons 11)
+set(IMG_SOURCE_animate_bound_upper_icon framedial_icons 12)
 
 set(IMG_SOURCE_keyframe_lock_past_on_icon keyframe_lock_icons 0)
 set(IMG_SOURCE_keyframe_lock_past_off_icon keyframe_lock_icons 1)
@@ -69,6 +72,9 @@ set(ICONS
     animate_stop_icon
     animate_pause_icon
     animate_loop_icon
+    animate_bounds_icon
+    animate_bound_lower_icon
+    animate_bound_upper_icon
 
     keyframe_lock_past_on_icon
     keyframe_lock_past_off_icon
@@ -165,6 +171,7 @@ set(ICONS
     palette_icon
     parameters_icon
     preview_options_icon
+    background_rendering_icon
     rename_icon
     render_options_icon
     reset_colors_icon
@@ -249,7 +256,7 @@ foreach (IMAGE IN ITEMS ${IMAGES})
     endif()
     add_custom_command(
         TARGET build_images POST_BUILD
-        COMMAND synfig ${SRC}.sif --time ${TIME}f -w ${W} -h ${H}
+        COMMAND synfig ${SRC}.sif --time ${TIME}f -w ${W} -h ${H} --quiet
         COMMAND mv ${SRC}.png ${CMAKE_CURRENT_BINARY_DIR}/${IMAGE}.png
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SRC}.sif

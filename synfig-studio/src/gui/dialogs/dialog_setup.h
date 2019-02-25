@@ -34,6 +34,13 @@
 #include <gtkmm/adjustment.h>
 #include <gtkmm/button.h>
 #include <gtkmm/checkbutton.h>
+#include <gtkmm/colorbutton.h>
+#include <gtkmm/radiobutton.h>
+#include <gtkmm/filechooser.h>
+#include <gtkmm/filechooserbutton.h>
+#include <gtkmm/filechooserdialog.h>
+#include <gtkmm/filechooserwidget.h>
+#include <gtkmm/filefilter.h>
 #include <gtkmm/comboboxtext.h>
 #include <gtkmm/drawingarea.h>
 #include <gtkmm/listviewtext.h>
@@ -72,85 +79,31 @@ class GammaPattern : public Gtk::DrawingArea
 	float gamma_r;
 	float gamma_g;
 	float gamma_b;
-	float black_level;
-	float red_blue_level;
 
 	int tile_w, tile_h;
 
 	Gdk::Color black[4],white[4],gray50[4],gray25[4];
 
-	float r_F32_to_F32(float x)const { float f((pow(x,gamma_r)*std::min(red_blue_level,1.0f)*(1.0f-black_level)+black_level)); if(f<0)f=0; if(f>1)f=1; return f; }
-	float g_F32_to_F32(float x)const { float f((pow(x,gamma_g)*sqrt(std::min(2.0f-red_blue_level,red_blue_level))*(1.0f-black_level)+black_level)); if(f<0)f=0; if(f>1)f=1; return f; }
-	float b_F32_to_F32(float x)const { float f((pow(x,gamma_b)*std::min(2.0f-red_blue_level,1.0f)*(1.0f-black_level)+black_level)); if(f<0)f=0; if(f>1)f=1; return f; }
+	float r_F32_to_F32(float x) const { return std::max(0.f, std::min(1.f, synfig::Gamma::calculate(x, gamma_r))); }
+	float g_F32_to_F32(float x) const { return std::max(0.f, std::min(1.f, synfig::Gamma::calculate(x, gamma_g))); }
+	float b_F32_to_F32(float x) const { return std::max(0.f, std::min(1.f, synfig::Gamma::calculate(x, gamma_b))); }
 
 public:
+	GammaPattern();
+	~GammaPattern();
 
 	void refresh();
 
 	void set_gamma_r(float x) { gamma_r=x; }
 	void set_gamma_g(float x) { gamma_g=x; };
 	void set_gamma_b(float x) { gamma_b=x; };
-	void set_black_level(float x) { black_level=x; };
-	void set_red_blue_level(float x) { red_blue_level=x; };
 
 	float get_gamma_r()const { return gamma_r; }
 	float get_gamma_g()const { return gamma_g; }
 	float get_gamma_b()const { return gamma_b; }
-	float get_black_level()const { return black_level; }
-	float get_red_blue_level()const { return red_blue_level; }
-
-	GammaPattern();
-
-	~GammaPattern();
 
 	virtual bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);
 }; // END of class GammaPattern
-
-class BlackLevelSelector : public Gtk::DrawingArea
-{
-	float level;
-
-	sigc::signal<void> signal_value_changed_;
-
-public:
-
-	BlackLevelSelector();
-
-	~BlackLevelSelector();
-
-	sigc::signal<void>& signal_value_changed() { return signal_value_changed_; }
-
-	void set_value(float x) { level=x; queue_draw(); }
-
-	const float &get_value()const { return level; }
-
-	virtual bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);
-
-	bool on_event(GdkEvent *event);
-}; // END of class BlackLevelSelector
-
-class RedBlueLevelSelector : public Gtk::DrawingArea
-{
-	float level;
-
-	sigc::signal<void> signal_value_changed_;
-
-public:
-
-	RedBlueLevelSelector();
-
-	~RedBlueLevelSelector();
-
-	sigc::signal<void>& signal_value_changed() { return signal_value_changed_; }
-
-	void set_value(float x) { level=x; queue_draw(); }
-
-	const float &get_value()const { return level; }
-
-	virtual bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);
-
-	bool on_event(GdkEvent *event);
-}; // END of class RedBlueSelector
 
 class Widget_Enum;
 
@@ -159,21 +112,21 @@ class Dialog_Setup : public Dialog_Template
 	/* Draft for change resume */
 	enum Change
 	{
-		CHANGE_NONE					=	(0),		//    0
-		CHANGE_UI_LANGUAGE			=	(1 <<  0),	//    1
-		CHANGE_AUTOBACKUP			=	(1 <<  1),	//    2
-		CHANGE_UI_HANDLE_TOOLTIP					=	(1 <<  2),	//    4
-		CHANGE_WIDTH					=	(1 <<  3),	//    8
-		CHANGE_ANGLE					=	(1 <<  4),	//   16
-		CHANGE_VERTEX					=	(1 <<  5),	//   32
-		CHANGE_BONE_RECURSIVE			=	(1 <<  6),	//   64
-		CHANGE_BRUSH_PATH				=	(1 <<  7),	//  128
-		CHANGE_SCALE					=	(1 <<  8),	//  256
-		CHANGE_SCALE_X				=	(1 <<  9),	//  512
-		CHANGE_SCALE_Y				=	(1 << 10),	// 1024
-		CHANGE_SKEW					=	(1 << 11),	// 2048
+		CHANGE_NONE              = (0),       //    0
+		CHANGE_UI_LANGUAGE       = (1 <<  0), //    1
+		CHANGE_AUTOBACKUP        = (1 <<  1), //    2
+		CHANGE_UI_HANDLE_TOOLTIP = (1 <<  2), //    4
+		CHANGE_WIDTH             = (1 <<  3), //    8
+		CHANGE_ANGLE             = (1 <<  4), //   16
+		CHANGE_VERTEX            = (1 <<  5), //   32
+		CHANGE_BONE_RECURSIVE    = (1 <<  6), //   64
+		CHANGE_BRUSH_PATH        = (1 <<  7), //  128
+		CHANGE_SCALE             = (1 <<  8), //  256
+		CHANGE_SCALE_X           = (1 <<  9), //  512
+		CHANGE_SCALE_Y           = (1 << 10), // 1024
+		CHANGE_SKEW              = (1 << 11), // 2048
 
-		CHANGE_ALL					=	(~0)
+		CHANGE_ALL               = (~0)
 	};
 
 	// Change mechanism
@@ -183,15 +136,17 @@ class Dialog_Setup : public Dialog_Template
 	void on_gamma_r_change();
 	void on_gamma_g_change();
 	void on_gamma_b_change();
-	void on_black_level_change();
-	void on_red_blue_level_change();
 	void on_size_template_combo_change();
 	void on_fps_template_combo_change();
 	void on_ui_language_combo_change();
 	void on_time_format_changed();
 	void on_autobackup_changed();
 	void on_tooltip_transformation_changed();
-
+	void on_play_sound_on_render_done_changed();
+	void on_def_background_type_changed(); //bound on clicked
+	void on_def_background_color_changed();
+	void on_def_background_image_set();
+	void on_preview_background_color_changed();
 	void on_brush_path_add_clicked();
 	void on_brush_path_remove_clicked();
 
@@ -206,8 +161,6 @@ class Dialog_Setup : public Dialog_Template
 
 	// Widget for pages
 	GammaPattern gamma_pattern;
-	BlackLevelSelector black_level_selector;
-	RedBlueLevelSelector red_blue_level_selector;
 	Gtk::ComboBoxText timestamp_comboboxtext;
 	std::map<std::string, synfig::Time::Format> time_formats;
 
@@ -254,9 +207,20 @@ class Dialog_Setup : public Dialog_Template
 	Gtk::SpinButton* pref_y_size_spinbutton;
 	Gtk::SpinButton* pref_x_size_spinbutton;
 
-	Gtk::Entry image_sequence_separator;
+	Gtk::RadioButton::Group group_def_background;
+	Gtk::RadioButton        def_background_none;
+	Gtk::RadioButton        def_background_color;
+	Gtk::RadioButton        def_background_image;
+	Gtk::ColorButton        def_background_color_button;
+	Gtk::FileChooserButton  fcbutton_image;
+	Gtk::ColorButton        preview_background_color_button;
+	//Gtk::FileFilter         filter_images;
+	//Gtk::FileFilter         filter_any;
+
+	Gtk::Entry        image_sequence_separator;
 	Gtk::ComboBoxText navigator_renderer_combo;
 	Gtk::ComboBoxText workarea_renderer_combo;
+	Gtk::Switch       toggle_play_sound_on_render_done;
 
 	Gtk::Switch toggle_handle_tooltip_widthpoint;
 	Gtk::Switch toggle_handle_tooltip_radius;
@@ -287,15 +251,13 @@ public:
 
 public:
 
-	void set_time_format(synfig::Time::Format time_format);
-
-	const synfig::Time::Format& get_time_format()const { return time_format; }
-
 	Dialog_Setup(Gtk::Window& parent);
 	~Dialog_Setup();
 
-    void refresh();
+	void set_time_format(synfig::Time::Format time_format);
+	const synfig::Time::Format& get_time_format()const { return time_format; }
 
+    void refresh();
 }; // END of Dialog_Waypoint
 
 }; // END of namespace studio

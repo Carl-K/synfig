@@ -71,7 +71,6 @@ Module::subsys_init(const String &prefix)
 		return false;
 	}
 
-	lt_dladdsearchdir(".");
 	if(getenv("HOME"))
 		lt_dladdsearchdir(strprintf("%s/.local/share/synfig/modules", getenv("HOME")).c_str());
 	lt_dladdsearchdir((Glib::locale_from_utf8(prefix) + \
@@ -84,7 +83,6 @@ Module::subsys_init(const String &prefix)
 #ifdef __APPLE__
 	lt_dladdsearchdir("/Library/Frameworks/synfig.framework/Resources/modules");
 #endif
-	lt_dladdsearchdir("/usr/local/lib/synfig/modules");
 	lt_dladdsearchdir(".");
 #endif
 	book_=new Book;

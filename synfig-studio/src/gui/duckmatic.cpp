@@ -68,6 +68,7 @@
 
 #include <synfig/context.h>
 #include <synfig/layers/layer_pastecanvas.h>
+#include <synfig/layers/layer_filtergroup.h>
 
 #include "ducktransform_matrix.h"
 #include "ducktransform_rotate.h"
@@ -979,7 +980,8 @@ Duckmatic::signal_edited_selected_ducks(bool moving)
         catch (String)
         {
             selected_ducks=old_set;
-            throw;
+            // signals must not throw exceptions!!!
+            //throw;
         }
     }
     selected_ducks=old_set;
@@ -1336,7 +1338,7 @@ Duckmatic::find_duck(synfig::Point point, synfig::Real radius, Duck::Type type)
                 ret_vector.push_back(duck);
             }
             // we have another closer duck then discard the stored
-            else if (!equal && ret_vector.size())
+            else if (ret_vector.size())
                 ret_vector.clear();
             closest=dist;
             ret=duck;
@@ -1366,6 +1368,14 @@ Duckmatic::find_duck(synfig::Point point, synfig::Real radius, Duck::Type type)
         if(!found)
             for(i=0; i<ret_vector.size();i++)
                 if(ret_vector[i]->get_type() & Duck::TYPE_RADIUS)
+                {
+                    ret=ret_vector[i];
+                    found=true;
+                    break;
+                }
+        if(!found)
+            for(i=0; i<ret_vector.size();i++)
+                if(ret_vector[i]->get_type() & Duck::TYPE_VERTEX)
                 {
                     ret=ret_vector[i];
                     found=true;
@@ -1562,7 +1572,7 @@ Duckmatic::load_sketch(const synfig::String& filename)
 
 
 void
-Duckmatic::add_ducks_layers(synfig::Canvas::Handle canvas, std::set<synfig::Layer::Handle>& selected_layer_set, etl::handle<CanvasView> canvas_view, synfig::TransformStack& transform_stack)
+Duckmatic::add_ducks_layers(synfig::Canvas::Handle canvas, std::set<synfig::Layer::Handle>& selected_layer_set, etl::handle<CanvasView> canvas_view, synfig::TransformStack& transform_stack, int *out_transform_count)
 {
     int transforms(0);
     String layer_name;
@@ -1643,13 +1653,32 @@ Duckmatic::add_ducks_layers(synfig::Canvas::Handle canvas, std::set<synfig::Laye
             );
 
             Canvas::Handle child_canvas(layer->get_param("canvas").get(Canvas::Handle()));
-            add_ducks_layers(child_canvas,selected_layer_set,canvas_view,transform_stack);
 
-            transform_stack.pop();
+            // keep stack
+            if ( etl::handle<Layer_FilterGroup>::cast_dynamic(layer_pastecanvas)
+              && layer_pastecanvas->get_amount() > 0.5 )
+            {
+            	transforms++;
+                add_ducks_layers(child_canvas,selected_layer_set,canvas_view,transform_stack, &transforms);
+            }
+            else
+            {
+                add_ducks_layers(child_canvas,selected_layer_set,canvas_view,transform_stack);
+            	transform_stack.pop();
+            }
         }
     }
-    // Remove all of the transforms we have added
-    while(transforms--) { transform_stack.pop(); }
+
+    if (out_transform_count)
+    {
+    	// keep stack and return count transforms ...
+    	*out_transform_count += transforms;
+    }
+    else
+    {
+        // ... or remove all of the transforms we have added
+    	while(transforms--) { transform_stack.pop(); }
+    }
 
 #undef QUEUE_REBUILD_DUCKS
 }

@@ -32,16 +32,22 @@
 #	include <config.h>
 #endif
 
-#include "time.h"
+#include <cassert>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+
+#include <algorithm>
+
 #include <ETL/stringf>
 #include <ETL/misc>
+
 #include "general.h"
+#include "real.h"
+
+#include "time.h"
+
 #include <synfig/localization.h>
-#include <cmath>
-#include <cassert>
-#include <algorithm>
-#include <cstdio>
-#include <ctype.h>
 
 #endif
 
@@ -156,6 +162,44 @@ Time::Time(const String &str_, float fps):
 	}
 }
 
+// This functions suggests what time is in seconds
+std::string Time::get_string(Time::Format format) const
+{
+	Time time(*this);
+	if (time <= begin())
+		return "SOT";	// Start Of Time
+	if (time >= end())
+		return "EOT";	// End Of Time
+
+	if(format <= FORMAT_NORMAL)
+	{
+		synfig::ChangeLocale change_locale(LC_NUMERIC, "C");
+		return strprintf("%.3f", (float)time);
+	}
+
+
+	if(format<=FORMAT_VIDEO)
+	{
+		int hours, minutes, seconds, microseconds;
+		hours = time / 3600;
+		time -= hours*3600;
+
+		minutes = time / 60;
+		time -= minutes*60;
+
+		seconds=time;
+		time -= seconds;
+
+		microseconds = time*1000;
+
+		return strprintf("%02d:%02d:%02d.%02d", hours, minutes, seconds, microseconds);
+	}
+
+	synfig::error(_("Translating Time to unknown format (not implemented)"));
+
+	return "";
+}
+
 String
 Time::get_string(float fps, Time::Format format)const
 {
@@ -241,7 +285,7 @@ Time::get_string(float fps, Time::Format format)const
 			if (!(format<=FORMAT_NOSPACES) && started)
 				ret += " ";
 
-			if(abs(frame-floor(frame) >= epsilon_()))
+			if (fabs(frame-floor(frame)) >= epsilon_())
 				ret += strprintf("%0.3ff", frame);
 			else
 				ret += strprintf("%0.0ff", frame);
@@ -282,16 +326,10 @@ Time::get_string(float fps, Time::Format format)const
 Time
 Time::round(float fps)const
 {
-	assert(fps>0);
-
-	value_type time(*this);
-
-	time*=fps;
-
-	if(abs(time-floor(time))<0.5)
-		return floor(time)/fps;
-	else
-		return ceil(time)/fps;
+	// the aim is to make results for the same frame are absolutelly idential
+	assert(approximate_greater_lp(fps, 0.f));
+	if (!approximate_greater_lp(fps, 0.f)) return *this;
+	return Time(floor(value_*fps + 0.5)/fps);
 }
 
 #ifdef _DEBUG

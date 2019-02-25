@@ -54,6 +54,7 @@
 #include <unistd.h>
 #endif
 
+#include "token.h"
 #include "target.h"
 #include <ETL/stringf>
 #include "cairolistimporter.h"
@@ -316,6 +317,9 @@ synfig::Main::Main(const synfig::String& basepath,ProgressCallback *cb):
 		throw std::runtime_error(_("Unable to initialize subsystem \"Cairo Importers\""));
 	}
 
+	// Rebuild tokens data
+	Token::rebuild();
+
 	// Load up the list importer
 	Importer::book()[String("lst")]=Importer::BookEntry(ListImporter::create, ListImporter::supports_file_system_wrapper__);
 	CairoImporter::book()[String("lst")]=CairoImporter::BookEntry(CairoListImporter::create, CairoListImporter::supports_file_system_wrapper__);
@@ -366,6 +370,9 @@ synfig::Main::Main(const synfig::String& basepath,ProgressCallback *cb):
 		Module::Register(*iter,cb);
 		if(cb)cb->amount_complete((i+1)*100,modules_to_load.size()*100);
 	}
+
+	// Rebuild tokens data again to include new tokens from modules
+	Token::rebuild();
 
 	if(cb)cb->amount_complete(100, 100);
 	if(cb)cb->task(_("DONE"));
@@ -427,19 +434,22 @@ current_time()
 	return String(b);
 }
 
+bool synfig::synfig_quiet_mode = false;
+
 void
 synfig::error(const char *format,...)
 {
 	va_list args;
-	va_start(args,format);
-	error(vstrprintf(format,args));
+	va_start(args, format);
+	error(vstrprintf(format, args));
+	va_end(args);
 }
 
 void
 synfig::error(const String &str)
 {
 	general_io_mutex.lock();
-	cerr<<"synfig("<<getpid()<<")"<<current_time().c_str()<<_("error")<<": "<<str.c_str()<<endl;
+	cerr<<"\033[31m"<<"synfig("<<getpid()<<")"<<current_time().c_str()<<_("error")<<": "<<str.c_str()<<"\033[0m"<<endl;
 	general_io_mutex.unlock();
 }
 
@@ -449,13 +459,14 @@ synfig::warning(const char *format,...)
 	va_list args;
 	va_start(args,format);
 	warning(vstrprintf(format,args));
+	va_end(args);
 }
 
 void
 synfig::warning(const String &str)
 {
 	general_io_mutex.lock();
-	cerr<<"synfig("<<getpid()<<")"<<current_time().c_str()<<_("warning")<<": "<<str.c_str()<<endl;
+	cerr<<"\033[33m"<<"synfig("<<getpid()<<")"<<current_time().c_str()<<_("warning")<<": "<<str.c_str()<<"\033[0m"<<endl;
 	general_io_mutex.unlock();
 }
 
@@ -463,13 +474,17 @@ void
 synfig::info(const char *format,...)
 {
 	va_list args;
-	va_start(args,format);
-	info(vstrprintf(format,args));
+	va_start(args, format);
+	info(vstrprintf(format, args));
+	va_end(args);
 }
 
 void
 synfig::info(const String &str)
 {
+	//if (SynfigToolGeneralOptions::instance()->should_be_quiet()) return; // don't show info messages in quiet mode
+	if (synfig::synfig_quiet_mode) return;
+
 	general_io_mutex.lock();
 	cout<<"synfig("<<getpid()<<")"<<current_time().c_str()<<_("info")<<": "<<str.c_str()<<endl;
 	general_io_mutex.unlock();
@@ -525,7 +540,8 @@ synfig::get_binary_path(const String &fallback_path)
 	FILE *f;
 
 	/* Read from /proc/self/exe (symlink) */
-	char* path2 = (char*)malloc(buf_size);
+	//char* path2 = (char*)malloc(buf_size);
+	char* path2 = new char[buf_size];
 	strncpy(path2, "/proc/self/exe", buf_size - 1);
 
 	while (1) {
@@ -561,7 +577,8 @@ synfig::get_binary_path(const String &fallback_path)
 		strncpy(path, path2, buf_size - 1);
 	}
 	
-	free(path2);
+	//free(path2);
+	delete[] path2;
 
 	if (result == "")
 	{

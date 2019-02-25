@@ -62,7 +62,7 @@
 
 #define ACTION_INIT(class)				 \
 	ACTION_INIT_NO_GET_LOCAL_NAME(class) \
-	synfig::String class::get_local_name()const { return dgettext("synfigstudio",local_name__); }
+	synfig::String class::get_local_name()const { return synfigapp_localize(local_name__); }
 
 /* === T Y P E D E F S ===================================================== */
 
@@ -111,6 +111,7 @@ public:
 		va_list args;
 		va_start(args,format);
 		desc_=etl::vstrprintf(format,args);
+		va_end(args);
 	}
 
 	Error(const char *format, ...):
@@ -119,6 +120,7 @@ public:
 		va_list args;
 		va_start(args,format);
 		desc_=etl::vstrprintf(format,args);
+		va_end(args);
 	}
 
 	Error(Type type=TYPE_UNABLE):

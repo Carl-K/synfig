@@ -87,10 +87,13 @@ Noise::Noise():
 
 
 
+void
+Noise::compile()
+	{ compiled_gradient.set(param_gradient.get(Gradient()) ); }
+
 inline Color
 Noise::color_func(const Point &point, float pixel_size,Context /*context*/)const
 {
-	Gradient gradient=param_gradient.get(Gradient());
 	Vector size=param_size.get(Vector());
 	RandomNoise random;
 	random.set_seed(param_random.get(int()));
@@ -129,15 +132,18 @@ Noise::color_func(const Point &point, float pixel_size,Context /*context*/)const
 		for(i=0;i<detail;i++)
 		{
 			amount=random(RandomNoise::SmoothType(smooth),0+(detail-i)*5,x,y,ftime)+amount*0.5;
-			if(amount<-1)amount=-1;if(amount>1)amount=1;
+			if (amount < -1) amount = -1;
+			if (amount >  1) amount =  1;
 
 			if(super_sample&&pixel_size)
 			{
 				amount2=random(RandomNoise::SmoothType(smooth),0+(detail-i)*5,x2,y,ftime)+amount2*0.5;
-				if(amount2<-1)amount2=-1;if(amount2>1)amount2=1;
+				if (amount2 < -1) amount2 = -1;
+				if (amount2 >  1) amount2 =  1;
 
 				amount3=random(RandomNoise::SmoothType(smooth),0+(detail-i)*5,x,y2,ftime)+amount3*0.5;
-				if(amount3<-1)amount3=-1;if(amount3>1)amount3=1;
+				if (amount3 < -1) amount3 = -1;
+				if (amount3 >  1) amount3 =  1;
 
 				if(turbulent)
 				{
@@ -152,7 +158,8 @@ Noise::color_func(const Point &point, float pixel_size,Context /*context*/)const
 			if(do_alpha)
 			{
 				alpha=random(RandomNoise::SmoothType(smooth),3+(detail-i)*5,x,y,ftime)+alpha*0.5;
-				if(alpha<-1)alpha=-1;if(alpha>1)alpha=1;
+				if (alpha < -1) alpha = -1;
+				if (alpha > 1) alpha = 1;
 			}
 
 			if(turbulent)
@@ -178,10 +185,12 @@ Noise::color_func(const Point &point, float pixel_size,Context /*context*/)const
 			}
 		}
 
-		if(super_sample && pixel_size)
-			ret=gradient(amount,max(amount3,max(amount,amount2))-min(amount3,min(amount,amount2)));
-		else
-			ret=gradient(amount);
+		if(super_sample && pixel_size) {
+			Real da = max(amount3, max(amount,amount2)) - min(amount3, min(amount,amount2));
+			ret = compiled_gradient.average(amount - da, amount + da);
+		} else {
+			ret = compiled_gradient.color(amount);
+		}
 
 		if(do_alpha)
 			ret.set_a(ret.get_a()*(alpha));
@@ -210,7 +219,7 @@ Noise::hit_check(synfig::Context context, const synfig::Point &point)const
 bool
 Noise::set_param(const String & param, const ValueBase &value)
 {
-	IMPORT_VALUE(param_gradient);
+	IMPORT_VALUE_PLUS(param_gradient, compile());
 	IMPORT_VALUE(param_size);
 	IMPORT_VALUE(param_random);
 	IMPORT_VALUE(param_detail);

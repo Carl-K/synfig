@@ -4,6 +4,19 @@ More detailed notes are available on the releases page:
 
 http://synfig.org/en/news/releases
 
+1.2.2 (git tag "1.2.2")
+
+  * Fix initialization of accumulator_type.
+  * Fixed 'unused variable warnings' (cleaning output)
+  * Fixed error preventing builing on gcc 8.1
+  * A lot of warnings fixed
+  * Added bootstrap.sh
+
+1.2.1 (git tag "1.2.1") - September 11, 2017
+
+ * Fixed compilation issues with GCC 7.1.0 (issue #396).
+ * Basic support for CMake build system. Thanks to Caryoscelus.
+
 0.04.19 (git tag "1.0.1") - July 21, 2015
 
  * Minor tweaks of build scripts.

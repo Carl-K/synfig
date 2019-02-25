@@ -303,6 +303,8 @@ ColorSlider::on_event(GdkEvent *event)
 			case GDK_SCROLL_LEFT:
 				x-=1.0;
 				break;
+			default:
+				break;
 		}
 	} else {
 		x = float(event->button.x);
@@ -397,12 +399,6 @@ Widget_ColorEdit::Widget_ColorEdit():
 
 	set_size_request(200,-1);
 	hold_signals=true;
-
-	R_adjustment->set_lower(-10000000);
-	G_adjustment->set_lower(-10000000);
-	B_adjustment->set_lower(-10000000);
-	A_adjustment->set_lower(-10000000);
-
 	clamp_=true;
 
 	Pango::AttrList attr_list;
@@ -414,8 +410,6 @@ Widget_ColorEdit::Widget_ColorEdit():
 	widget_color.set_size_request(-1,16);
 	attach(widget_color, 0, 2, 0, 1, Gtk::EXPAND|Gtk::FILL, Gtk::EXPAND|Gtk::FILL, 0, 0);
 	attach(*notebook, 0, 2, 1, 2, Gtk::EXPAND|Gtk::FILL, Gtk::EXPAND|Gtk::FILL, 0, 0);
-
-	Gtk::Label *label;
 
 	//This defines are used for code below simplification.
 	#define SLIDER_ROW(i,n,l) SliderRow(i, slider_##n = manage(new ColorSlider(ColorSlider::TYPE_##n)), l,attr_list,table);
@@ -483,6 +477,8 @@ Widget_ColorEdit::Widget_ColorEdit():
 	set_value(color);
 
 	hold_signals=false;
+	notebook->set_current_page(2);
+
 }
 
 Widget_ColorEdit::~Widget_ColorEdit()
@@ -490,6 +486,15 @@ Widget_ColorEdit::~Widget_ColorEdit()
 }
 
 #define CLIP_VALUE(value, min, max) (value <= min ? min : (value > max ? max : value))
+
+bool are_close_colors(Gdk::Color const& a, Gdk::Color const& b) {
+	static const int eps = 1;
+	if (a == b)
+		return true;
+	return std::abs(a.get_red()-b.get_red()) <= eps
+		&& std::abs(a.get_green()-b.get_green()) <= eps
+		&& std::abs(a.get_blue()-b.get_blue()) <= eps;
+}
 
 void Widget_ColorEdit::setHVSColor(synfig::Color color)
 {
@@ -500,9 +505,11 @@ void Widget_ColorEdit::setHVSColor(synfig::Color color)
 	gtkColor.set_red((unsigned short)(r * USHRT_MAX));
 	gtkColor.set_green((unsigned short)(g * USHRT_MAX));
 	gtkColor.set_blue((unsigned short)(b * USHRT_MAX));
-	colorHVSChanged = true;
-	hvsColorWidget->set_previous_color (gtkColor); //We can't use it there, cause color changes in realtime.
-	hvsColorWidget->set_current_color (gtkColor);
+	if (!are_close_colors(hvsColorWidget->get_current_color(), gtkColor)) {
+		colorHVSChanged = true;
+		hvsColorWidget->set_current_color(gtkColor);
+	}
+	hvsColorWidget->set_previous_color(hvsColorWidget->get_current_color()); //We can't use it there, cause color changes in realtime.
 	colorHVSChanged = false;
 }
 
@@ -535,8 +542,8 @@ Widget_ColorEdit::on_slider_moved(ColorSlider::Type type, float amount)
 
 	// If a non-primary colorslider is adjusted,
 	// we want to make sure that we clamp
-	if(type>ColorSlider::TYPE_B && (color.get_r()<0 ||color.get_g()<0 ||color.get_b()<0))
-		clamp_=true;
+	//if(type>ColorSlider::TYPE_B && (color.get_r()<0 ||color.get_g()<0 ||color.get_b()<0))
+	//	clamp_=true;
 
 	/*
 	if(type==ColorSlider::TYPE_R && color.get_r()<0)clamp_=false;

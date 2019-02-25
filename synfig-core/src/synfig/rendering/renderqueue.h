@@ -55,26 +55,17 @@ public:
 	typedef std::list<Task::Handle> TaskQueue;
 
 private:
-	class TaskSubQueue: public Task
-	{
-	public:
-		typedef etl::handle<TaskSubQueue> Handle;
-
-		Task::Handle clone() const { return clone_pointer(this); }
-
-		const Task::Handle& sub_task() const { return Task::sub_task(0); }
-		Task::Handle& sub_task() { return Task::sub_task(0); }
-	};
+	static int last_batch_index;
 
 	Glib::Threads::Mutex mutex;
 	Glib::Threads::Mutex threads_mutex;
 	Glib::Threads::Cond cond;
-	Glib::Threads::Cond condgl;
+	Glib::Threads::Cond single_cond;
 
 	TaskQueue ready_tasks;
-	TaskQueue gl_ready_tasks;
+	TaskQueue single_ready_tasks;
 	TaskSet not_ready_tasks;
-	TaskSet gl_not_ready_tasks;
+	TaskSet single_not_ready_tasks;
 
 	bool started;
 
@@ -89,6 +80,9 @@ private:
 	Task::Handle get(int thread_index);
 
 	static void fix_task(const Task &task, const Task::RunParams &params);
+	bool remove_if_orphan(const Task::Handle &task, bool in_queue);
+	void remove_orphans();
+	bool remove_task(const Task::Handle &task);
 
 public:
 	RenderQueue();
@@ -97,6 +91,8 @@ public:
 	int get_threads_count() const;
 	void enqueue(const Task::Handle &task, const Task::RunParams &params);
 	void enqueue(const Task::List &tasks, const Task::RunParams &params);
+	void cancel(const Task::Handle &task);
+	void cancel(const Task::List &list);
 	void clear();
 };
 

@@ -156,8 +156,6 @@ Action::ActivepointSetSmart::set_param(const synfig::String& name, const Action:
 	}
 
 	return Action::CanvasSpecific::set_param(name,param);
-
-	return Action::CanvasSpecific::set_param(name,param);
 }
 
 bool
@@ -198,7 +196,51 @@ Action::ActivepointSetSmart::enclose_activepoint(const synfig::Activepoint& acti
 {
 	times.insert(activepoint.get_time());
 
-	if(get_edit_mode()&MODE_ANIMATE_PAST) try
+	if (get_edit_mode()&MODE_ANIMATE_PAST) {
+		// Try to find prev keyframe
+		// Keyframe keyframe(*get_canvas()->keyframe_list().find_prev(activepoint.get_time()));
+		KeyframeList::iterator iter;
+		if (get_canvas()->keyframe_list().find_prev(activepoint.get_time(), iter)) {
+			Keyframe keyframe(*iter);
+
+			if (!times.count(keyframe.get_time())) {
+				times.insert(keyframe.get_time());
+
+			try { value_node->list[index].find(keyframe.get_time()); }
+			catch(synfig::Exception::NotFound)
+			{
+				Action::Handle action(ActivepointAdd::create());
+
+				action->set_param("canvas",get_canvas());
+				action->set_param("canvas_interface",get_canvas_interface());
+				action->set_param("value_desc",value_desc);
+
+				if(!value_node->list[index].timing_info.empty())
+				{
+					action->set_param("time",keyframe.get_time());
+				}
+				else
+				{
+					synfig::Activepoint tmp;
+
+					tmp.set_state(true);
+					tmp.set_time(keyframe.get_time());
+					action->set_param("activepoint",tmp);
+				}
+
+				assert(action->is_ready());
+				if(!action->is_ready())
+					throw Error(Error::TYPE_NOTREADY);
+
+				add_action_front(action);
+			}
+
+
+			}
+
+		}
+	}
+	/*try
 	{
 		// Try to find prev keyframe
 		Keyframe keyframe(*get_canvas()->keyframe_list().find_prev(activepoint.get_time()));
@@ -238,9 +280,51 @@ Action::ActivepointSetSmart::enclose_activepoint(const synfig::Activepoint& acti
 		}
 	}
 	catch(int) { }
-	catch(synfig::Exception::NotFound) { }
+	catch(synfig::Exception::NotFound) { }*/
 
-	if(get_edit_mode()&MODE_ANIMATE_FUTURE)try
+	if(get_edit_mode() & MODE_ANIMATE_FUTURE)
+	{
+		// Try to find next keyframe
+		KeyframeList::iterator iter;
+		if (get_canvas()->keyframe_list().find_next(activepoint.get_time(), iter)) {
+			Keyframe keyframe(*iter);
+
+			if (!times.count(keyframe.get_time())) {
+				times.insert(keyframe.get_time());
+
+				try { value_node->list[index].find(keyframe.get_time()); }
+				catch(synfig::Exception::NotFound)
+				{
+					Action::Handle action(ActivepointAdd::create());
+
+					action->set_param("canvas",get_canvas());
+					action->set_param("canvas_interface",get_canvas_interface());
+					action->set_param("value_desc",value_desc);
+
+					if(!value_node->list[index].timing_info.empty())
+					{
+						action->set_param("time",keyframe.get_time());
+					}
+					else
+					{
+						synfig::Activepoint tmp;
+
+						tmp.set_state(true);
+						tmp.set_time(keyframe.get_time());
+						action->set_param("activepoint",tmp);
+					}
+
+					assert(action->is_ready());
+					if(!action->is_ready())
+						throw Error(Error::TYPE_NOTREADY);
+
+					add_action_front(action);
+				}
+
+			}
+		}
+	}
+	/*try
 	{
 		// Try to find next keyframe
 		Keyframe keyframe(*get_canvas()->keyframe_list().find_next(activepoint.get_time()));
@@ -280,7 +364,7 @@ Action::ActivepointSetSmart::enclose_activepoint(const synfig::Activepoint& acti
 		}
 	}
 	catch(int) { }
-	catch(synfig::Exception::NotFound) { }
+	catch(synfig::Exception::NotFound) { }*/
 }
 
 void
@@ -317,7 +401,7 @@ Action::ActivepointSetSmart::prepare()
 		return;
 	}
 	catch(int){}
-	catch(Exception::NotFound){}
+	catch(Exception::NotFound&){}
 
 	try
 	{
@@ -342,7 +426,7 @@ Action::ActivepointSetSmart::prepare()
 		return;
 	}
 	catch(int){}
-	catch(Exception::NotFound){}
+	catch(Exception::NotFound&){}
 
 	try
 	{
@@ -364,7 +448,7 @@ Action::ActivepointSetSmart::prepare()
 		return;
 	}
 	catch(int){}
-	catch(Exception::NotFound){}
+	catch(Exception::NotFound&){}
 
 	throw Error(_("Unable to determine how to proceed. This is a bug."));
 }

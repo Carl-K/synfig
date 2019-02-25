@@ -2,10 +2,20 @@
 ## Configure
 ##
 
-set(STUDIO_VERSION "1.3.2")
+set(STUDIO_VERSION "1.3.11")
 set(SHOW_EXTRA_INFO OFF) # this needs some fixes to work
+set(DATA_PREFIX "${CMAKE_INSTALL_PREFIX}" CACHE PATH "Path, where the share directory with the pixmaps, sounds, plugins and translations is located. Default: Prefix, where Synfig Studio is going to be installed")
+set(IMG_EXT "png" CACHE STRING "File extension of the pixmaps (without the \".\"). Default: png")
+
 configure_file(autorevision.h.cmake.in autorevision.h)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+## Defines
+add_definitions(-DIMAGE_EXT="${IMG_EXT}")
+add_definitions(-DIMAGE_DIR="${DATA_PREFIX}/share/pixmaps")
+add_definitions(-DSOUND_DIR="${DATA_PREFIX}/share/synfig/sounds")
+add_definitions(-DPLUGIN_DIR="${DATA_PREFIX}/share/synfig/plugins")
+add_definitions(-DLOCALEDIR="${DATA_PREFIX}/share/locale")
 
 ##
 ## Targets
@@ -18,7 +28,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 target_sources(synfigstudio
     PRIVATE
         "${CMAKE_CURRENT_LIST_DIR}/duck.cpp"
-        "${CMAKE_CURRENT_LIST_DIR}/adjust_window.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/timemodel.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/app.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/asyncrenderer.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/audiocontainer.cpp"
@@ -41,6 +51,7 @@ target_sources(synfigstudio
         "${CMAKE_CURRENT_LIST_DIR}/workarea.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/main_win32.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/mainwindow.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/helpers.cpp"
 )
 
 include(actionmanagers/CMakeLists.txt)

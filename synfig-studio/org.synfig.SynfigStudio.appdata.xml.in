@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2013 Yu Chen <jcomee@gmail.com> -->
+<component type="desktop">
+  <id>org.synfig.SynfigStudio</id>
+  <launchable type="desktop-id">org.synfig.SynfigStudio.desktop</launchable>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0</project_license>
+  <name>Synfig Studio</name>
+  <description>
+    <_p>
+   Synfig Studio is a free and open-source 2D animation software, designed as powerful industrial-strength solution for creating film-quality animation using a vector and bitmap artwork. It eliminates the need to create animation frame-by frame, allowing you to produce 2D animation of a higher quality with fewer people and resources. 
+  </_p>
+    <_p>Features:</_p>
+    <ul>
+      <_li>Can manipulate vector and bitmap artwork</_li>
+      <_li>Automatic tweening (independent from FPS)</_li>
+      <_li>Multitude of layers of various types (geometry primitives, shapes, gradients, fratals)</_li>
+      <_li>Full-featured bone system</_li>
+      <_li>Filters and effects for compositing (blurs, distortions, color manipulation, masks)</_li>
+      <_li>All color operations use High Dynamic-Range Imaging (HDRI)</_li>
+      <_li>Pentablet-friendly tools</_li>
+      <_li>Sound support</_li>
+      <_li>Linking data on file- or parameter-level</_li>
+      <_li>Automatic animation using mathematical functions</_li>
+    </ul>
+  </description>
+  <screenshots>
+    <screenshot height="693" width="1232" type="default">
+      <image>https://download.tuxfamily.org/morevna/blog/2017/02/screenshot-07-16-9.png</image>
+      <_caption>Synfig Studio workspace</_caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://www.synfig.org</url>
+  <update_contact>contact_at_synfig.org</update_contact>
+  <keywords>
+    <keyword>2D</keyword>
+    <keyword>Vector</keyword>
+    <keyword>Animation</keyword>
+    <keyword>Cartoon</keyword>
+    <keyword>Anime</keyword>
+    <keyword>FX</keyword>
+    <keyword>Draw</keyword>
+    <keyword>Cutout</keyword>
+    <keyword>Moho</keyword>
+    <keyword>Toomboon</keyword>
+    <keyword>Flash</keyword>
+    <keyword>ToonBoom</keyword>
+  </keywords>
+
+  <developer_name>Synfig</developer_name>
+  <url type="bugtracker">https://github.com/synfig/synfig/issues</url>
+  <url type="donation">https://www.synfig.org/donate/</url>
+  <url type="help">https://wiki.synfig.org/Category:Manual</url>
+  <url type="translate">https://www.transifex.com/morevnaproject/synfig/</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.3.11" date="2019-02-08"></release>
+  </releases>
+</component>

@@ -8,6 +8,7 @@
 **	Copyright (c) 2002-2005 Robert B. Quattlebaum Jr., Adrian Bentley
 **	Copyright (c) 2007, 2008 Chris Moore
 **	Copyright (c) 2011-2013 Carlos López
+**	......... ... 2018 Ivan Mahonin
 **
 **	This package is free software; you can redistribute it and/or
 **	modify it under the terms of the GNU General Public License as
@@ -54,7 +55,7 @@
 
 #endif
 
-using namespace etl;
+using namespace synfig;
 
 /* === M A C R O S ========================================================= */
 
@@ -78,7 +79,7 @@ SYNFIG_LAYER_SET_CVS_ID(Region,"$Id$");
 Region::Region()
 {
 	clear();
-	vector<BLinePoint> bline_point_list;
+	std::vector<BLinePoint> bline_point_list;
 	bline_point_list.push_back(BLinePoint());
 	bline_point_list.push_back(BLinePoint());
 	bline_point_list.push_back(BLinePoint());
@@ -100,83 +101,79 @@ Region::Region()
 void
 Region::sync_vfunc()
 {
-	ValueBase bline=param_bline;
-	
-	if(bline.get_contained_type()==type_bline_point)
-		segment_list=convert_bline_to_segment_list(bline).get_list_of(synfig::Segment());
-	else if(bline.get_contained_type()==type_segment)
-		segment_list=vector<synfig::Segment>(bline.get_list_of(synfig::Segment()));
-	else
-	{
-		synfig::warning("Region: incorrect type on bline, layer disabled");
-		clear();
-		return;
-	}
+	clear();
 
-	if(segment_list.empty())
-	{
-		synfig::warning("Region: segment_list is empty, layer disabled");
-		clear();
-		return;
-	}
+	const Real k = 1.0/3.0;
+	const BLinePoint blank_point;
+	const Segment blank_segment;
 
-	bool looped = bline.get_loop();
+	// build splines
+	bool first = true;
+	bool first_warning = true;
+	Vector prev;
+	Vector prev_tangent;
+	const ValueBase::List &list = param_bline.get_list();
+	for(ValueBase::List::const_iterator i = list.begin(); i != list.end(); ++i) {
+		if (i->get_type() == type_bline_point) {
+			// process BLinePoint
+			const BLinePoint &point = i->get(blank_point);
+			const Vector &p = point.get_vertex();
 
-	Vector::value_type n;
-	etl::hermite<Vector> curve;
-	vector<Point> vector_list;
+			if (first)
+				{ first = false; move_to(p); }
+			else
+			if (prev_tangent.is_equal_to(Vector::zero()) && point.get_tangent1().is_equal_to(Vector::zero()))
+				line_to(p);
+			else
+				cubic_to(p, prev + prev_tangent*k, p - point.get_tangent1()*k);
 
-	vector<Segment>::const_iterator iter=segment_list.begin();
-	//Vector							last = iter->p1;
+			prev = point.get_vertex();
+			prev_tangent = point.get_tangent2();
+		} else
+		if (i->get_type() == type_segment) {
+			// process Segment
+			const Segment &segment = i->get(blank_segment);
 
-	//make sure the shape has a clean slate for writing
-	//clear();
+			if (first)
+				{ first = false; move_to(segment.p1); }
+			else
+			if (!segment.p1.is_equal_to(prev))
+				line_to(segment.p1);
 
-	//and start off at the first point
-	//move_to(last[0],last[1]);
+			if (segment.t1.is_equal_to(Vector::zero()) && segment.t2.is_equal_to(Vector::zero()))
+				line_to(segment.p2);
+			else
+				cubic_to(segment.p2, segment.p1 + segment.t1*k, segment.p2 - segment.t2*k);
 
-	for(;iter!=segment_list.end();++iter)
-	{
-		//connect them with a line if they aren't already joined
-		/*if(iter->p1 != last)
-		{
-			line_to(iter->p1[0],iter->p1[1]);
-		}
-
-		//curve to the next end point
-		cubic_to(iter->p2[0],iter->p2[1],
-				 iter->p1[0] + iter->t1[0]/3.0,iter->p1[1] + iter->t1[1]/3.0,
-				 iter->p2[0] - iter->t2[0]/3.0,iter->p2[1] - iter->t2[1]/3.0);
-
-		last = iter->p2;*/
-
-		if(iter->t1.is_equal_to(Vector(0,0)) && iter->t2.is_equal_to(Vector(0,0)))
-		{
-			vector_list.push_back(iter->p2);
-		}
-		else
-		{
-			curve.p1()=iter->p1;
-			curve.t1()=iter->t1;
-			curve.p2()=iter->p2;
-			curve.t2()=iter->t2;
-			curve.sync();
-
-			for(n=0.0;n<1.0;n+=1.0/SAMPLES)
-				vector_list.push_back(curve(n));
+			prev = segment.p2;
+			prev_tangent = Vector();
+		} else
+		if (first_warning) {
+			// warning
+			first_warning = false;
+			synfig::warning("Region: incorrect type on bline");
 		}
 	}
 
-	//add the starting point onto the end so it actually fits the shape, so we can be extra awesome...
-	if(!looped)
-		vector_list.push_back(segment_list[0].p1);
+	// close loop
+	if ( !first
+	  && param_bline.get_loop()
+	  && list.front().get_type() == type_bline_point )
+	{
+		const BLinePoint &point = list.front().get(blank_point);
+		const Vector &p = point.get_vertex();
+		if ( !prev_tangent.is_equal_to(Vector::zero())
+		  || !point.get_tangent1().is_equal_to(Vector::zero()) )
+			cubic_to(p, prev + prev_tangent*k, p - point.get_tangent1()*k);
+	}
 
-	set_stored_polygon(vector_list);
+	close();
 }
 
 bool
 Region::set_shape_param(const String & param, const ValueBase &value)
 {
+	// TODO: move this backward compatibility code to load_canvas
 	if(param=="segment_list")
 	{
 		if(dynamic_param_list().count("segment_list"))
@@ -189,42 +186,17 @@ Region::set_shape_param(const String & param, const ValueBase &value)
 			synfig::warning("Region::set_param(): The parameter \"segment_list\" is deprecated. Use \"bline\" instead.");
 	}
 
-	if(	(param=="segment_list" || param=="bline") && value.get_type()==type_list)
+	if (param=="segment_list" || param=="bline")
 	{
-		//if(value.get_contained_type()!=type_bline_point)
-		//	return false;
-
-		param_bline=value;
-
-		return true;
-	}
-
-/*	if(	param=="segment_list" && value.get_type()==type_list)
-	{
-		if(value.get_contained_type()==type_bline_point)
-			segment_list=convert_bline_to_segment_list(value);
-		else
-		if(value.get_contained_type()==type_segment)
-			segment_list=value;
-		else
-		if(value.empty())
-			segment_list.clear();
-		else
+		if (value.get_type() != type_list)
 			return false;
-		sync();
+		//if (value.get_contained_type()!=type_bline_point)
+		//	return false;
+		param_bline=value;
 		return true;
 	}
-	*/
 
-	// Skip polygon parameters
 	return Layer_Shape::set_shape_param(param, value);
-}
-
-bool
-Region::set_param(const String & param, const ValueBase &value)
-{
-	// Skip polygon parameters
-	return Layer_Shape::set_param(param,value);
 }
 
 ValueBase
@@ -234,7 +206,6 @@ Region::get_param(const String& param)const
 	EXPORT_NAME();
 	EXPORT_VERSION();
 
-	// Skip polygon parameters
 	return Layer_Shape::get_param(param);
 }
 

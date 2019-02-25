@@ -43,62 +43,89 @@ namespace synfig {
 */
 class Gamma
 {
-	float gamma_r;
-	float gamma_g;
-	float gamma_b;
-	float black_level;
-	float red_blue_level;
-
-	unsigned char table_r_U16_to_U8[65536];
-	unsigned char table_g_U16_to_U8[65536];
-	unsigned char table_b_U16_to_U8[65536];
-
-	float table_r_U8_to_F32[256];
-	float table_g_U8_to_F32[256];
-	float table_b_U8_to_F32[256];
+private:
+	float gamma[3];
+	float table_U16_to_F32[3][65536];
+	unsigned short table_U16_to_U16[3][65536];
 
 public:
-	Gamma(float x=1):black_level(0) { set_gamma(x); }
+	static const Gamma no_gamma;
 
-	void set_gamma(float x);
-	void set_gamma_r(float x);
-	void set_gamma_g(float x);
-	void set_gamma_b(float x);
-	void set_black_level(float x);
+	static float calculate(float f, float gamma) { return powf(f, gamma); }
 
-	void set_red_blue_level(float x);
-	void set_all(float r, float g, float b, float black, float red_blue=1.0f);
+	explicit Gamma(float x = 1.f);
+	Gamma(float r, float g, float b);
 
-	float get_gamma()const { return (gamma_r+gamma_g+gamma_b)*0.33333333; }
-	float get_gamma_r()const { return gamma_r; }
-	float get_gamma_g()const { return gamma_g; }
-	float get_gamma_b()const { return gamma_b; }
-	float get_black_level()const { return black_level; }
-	float get_red_blue_level()const { return red_blue_level; }
+	void set_gamma(int channel, float x);
+	inline void set_gamma_r(float x) { set_gamma(0, x); }
+	inline void set_gamma_g(float x) { set_gamma(1, x); }
+	inline void set_gamma_b(float x) { set_gamma(2, x); }
+	inline void set_gamma(float x)
+		{ set_all(x, x, x); }
+	inline void set_all(float r, float g, float b)
+		{ set_gamma_r(r); set_gamma_g(g); set_gamma_b(b); }
 
-	void refresh_gamma_r();
-	void refresh_gamma_g();
-	void refresh_gamma_b();
+	inline float get_gamma(int channel) const
+		{ return gamma[channel]; }
+	inline float get_gamma_r() const { return get_gamma(0); }
+	inline float get_gamma_g() const { return get_gamma(1); }
+	inline float get_gamma_b() const { return get_gamma(2); }
+	inline float get_gamma() const
+		{ return (get_gamma_r() + get_gamma_g() + get_gamma_r())*0.33333333f; }
 
-	const unsigned char &r_U16_to_U8(int i)const { return table_r_U16_to_U8[i]; }
-	const unsigned char &g_U16_to_U8(int i)const { return table_g_U16_to_U8[i]; }
-	const unsigned char &b_U16_to_U8(int i)const { return table_b_U16_to_U8[i]; }
 
-	const unsigned char &r_F32_to_U8(float x)const { return table_r_U16_to_U8[(int)(x*65535.0f)]; }
-	const unsigned char &g_F32_to_U8(float x)const { return table_g_U16_to_U8[(int)(x*65535.0f)]; }
-	const unsigned char &b_F32_to_U8(float x)const { return table_b_U16_to_U8[(int)(x*65535.0f)]; }
+	// conversions from U16
 
-	unsigned short r_F32_to_U16(float x)const { return (unsigned short)table_r_U16_to_U8[(int)(x*65535.0f)]<<8; }
-	unsigned short g_F32_to_U16(float x)const { return (unsigned short)table_g_U16_to_U8[(int)(x*65535.0f)]<<8; }
-	unsigned short b_F32_to_U16(float x)const { return (unsigned short)table_b_U16_to_U8[(int)(x*65535.0f)]<<8; }
+	inline float U16_to_F32(int channel, unsigned short i) const { return table_U16_to_F32[channel][i]; }
+	inline float r_U16_to_F32(unsigned short i) const { return U16_to_F32(0, i); }
+	inline float g_U16_to_F32(unsigned short i) const { return U16_to_F32(1, i); }
+	inline float b_U16_to_F32(unsigned short i) const { return U16_to_F32(2, i); }
 
-	const float& r_U8_to_F32(int i)const { return table_r_U8_to_F32[i]; }
-	const float& g_U8_to_F32(int i)const { return table_g_U8_to_F32[i]; }
-	const float& b_U8_to_F32(int i)const { return table_b_U8_to_F32[i]; }
+	inline unsigned short U16_to_U16(int channel, unsigned short i) const { return table_U16_to_U16[channel][i]; }
+	inline unsigned short r_U16_to_U16(unsigned short i) const { return U16_to_U16(0, i); }
+	inline unsigned short g_U16_to_U16(unsigned short i) const { return U16_to_U16(1, i); }
+	inline unsigned short b_U16_to_U16(unsigned short i) const { return U16_to_U16(2, i); }
 
-	float r_F32_to_F32(float x)const { return static_cast<float>(pow(x,gamma_r)*(1.0f-black_level)+black_level); }
-	float g_F32_to_F32(float x)const { return static_cast<float>(pow(x,gamma_g)*(1.0f-black_level)+black_level); }
-	float b_F32_to_F32(float x)const { return static_cast<float>(pow(x,gamma_b)*(1.0f-black_level)+black_level); }
+	inline unsigned char U16_to_U8(int channel, unsigned short i) const { return (unsigned char)(U16_to_U16(channel, i) >> 8); }
+	inline unsigned char r_U16_to_U8(unsigned short i) const { return U16_to_U8(0, i); }
+	inline unsigned char g_U16_to_U8(unsigned short i) const { return U16_to_U8(1, i); }
+	inline unsigned char b_U16_to_U8(unsigned short i) const { return U16_to_U8(2, i); }
+
+
+	// conversions from U8
+
+	inline float U8_to_F32(int channel, unsigned char i) const { return U16_to_F32(channel, ((unsigned short)i) << 8); }
+	inline float r_U8_to_F32(unsigned char i) const { return U8_to_F32(0, i); }
+	inline float g_U8_to_F32(unsigned char i) const { return U8_to_F32(1, i); }
+	inline float b_U8_to_F32(unsigned char i) const { return U8_to_F32(2, i); }
+
+	inline unsigned short U8_to_U16(int channel, unsigned char i) const { return U16_to_U16(channel, ((unsigned short)i) << 8); }
+	inline unsigned short r_U8_to_U16(unsigned char i) const { return U8_to_U16(0, i); }
+	inline unsigned short g_U8_to_U16(unsigned char i) const { return U8_to_U16(1, i); }
+	inline unsigned short b_U8_to_U16(unsigned char i) const { return U8_to_U16(2, i); }
+
+	inline unsigned char U8_to_U8(int channel, unsigned char i) const { return U16_to_U8(channel, ((unsigned short)i) << 8); }
+	inline unsigned char r_U8_to_U8(unsigned short i) const { return U8_to_U8(0, i); }
+	inline unsigned char g_U8_to_U8(unsigned short i) const { return U8_to_U8(1, i); }
+	inline unsigned char b_U8_to_U8(unsigned short i) const { return U8_to_U8(2, i); }
+
+
+	// conversions from F32
+
+	inline float F32_to_F32(int channel, float f) const { return calculate(f, get_gamma(channel)); }
+	inline float r_F32_to_F32(float f) const { return F32_to_F32(0, f); }
+	inline float g_F32_to_F32(float f) const { return F32_to_F32(1, f); }
+	inline float b_F32_to_F32(float f) const { return F32_to_F32(2, f); }
+
+	inline unsigned short F32_to_U16(int channel, float f) const { return U16_to_U16(channel, (unsigned short)(f*65535.9f)); }
+	inline unsigned short r_F32_to_U16(float f) const { return F32_to_U16(0, f); }
+	inline unsigned short g_F32_to_U16(float f) const { return F32_to_U16(1, f); }
+	inline unsigned short b_F32_to_U16(float f) const { return F32_to_U16(2, f); }
+
+	inline unsigned char F32_to_U8(int channel, float f) const { return U16_to_U8(channel, (unsigned short)(f*65535.9f)); }
+	inline unsigned char r_F32_to_U8(float f) const { return F32_to_U8(0, f); }
+	inline unsigned char g_F32_to_U8(float f) const { return F32_to_U8(1, f); }
+	inline unsigned char b_F32_to_U8(float f) const { return F32_to_U8(2, f); }
 }; // END of class Gamma
 
 }; // END of namespace synfig

@@ -35,11 +35,10 @@
 #include <errno.h>
 #include <cstring>
 
-#include <boost/filesystem.hpp>
-#include <boost/program_options/options_description.hpp>
-#include <boost/program_options/variables_map.hpp>
-#include <boost/format.hpp>
-#include <boost/chrono.hpp>
+//#include <boost/program_options/options_description.hpp>
+//#include <boost/program_options/variables_map.hpp>
+//#include <boost/format.hpp>
+#include <chrono>
 
 #include <autorevision.h>
 #include <synfig/general.h>
@@ -66,18 +65,38 @@
 #endif
 
 using namespace synfig;
-namespace bfs=boost::filesystem;
 
 void process_job_list(std::list<Job>& job_list, const TargetParam& target_params)
 {
-	if(!job_list.size())
+	if (job_list.empty())
 		throw (SynfigToolException(SYNFIGTOOL_BORED, _("Nothing to do!")));
 
-	for(; job_list.size(); job_list.pop_front())
+	for(; !job_list.empty(); job_list.pop_front())
 	{
 		if (setup_job(job_list.front(), target_params))
 			process_job(job_list.front());
 	}
+}
+
+std::string get_extension(const std::string &filename)
+{
+	std::size_t found = filename.rfind(".");
+	if (found == std::string::npos) return ""; // extension not found
+
+	return filename.substr(found);
+}
+
+std::string replace_extension(const std::string &filename, const std::string &new_extension)
+{
+	std::size_t found = filename.rfind(".");
+	if (found == std::string::npos) return filename + "." + new_extension; // extension not found
+	
+	return filename.substr(0, found) + "." + new_extension;
+}
+
+std::string get_absolute_path(std::string relative_path) {
+  Glib::RefPtr<Gio::File> file = Gio::File::create_for_path(relative_path);
+  return file->get_path();
 }
 
 bool setup_job(Job& job, const TargetParam& target_parameters)
@@ -90,7 +109,8 @@ bool setup_job(Job& job, const TargetParam& target_parameters)
 	{
 		VERBOSE_OUT(3) << _("Target name undefined, attempting to figure it out")
 					   << std::endl;
-		std::string ext = bfs::path(job.outfilename).extension().string();
+		//std::string ext = bfs::path(job.outfilename).extension().string();
+		std::string ext = get_extension(job.outfilename);
 		if (ext.length())
 			ext = ext.substr(1);
 
@@ -133,19 +153,23 @@ bool setup_job(Job& job, const TargetParam& target_parameters)
 		else
 			new_extension = job.target_name;
 
-        job.outfilename = bfs::path(job.filename).replace_extension(new_extension).string();
+        //job.outfilename = bfs::path(job.filename).replace_extension(new_extension).string();
+		job.outfilename = replace_extension(job.filename, new_extension);
 	}
 
 	VERBOSE_OUT(4) << "Target name = " << job.target_name.c_str() << std::endl;
 	VERBOSE_OUT(4) << "Outfilename = " << job.outfilename.c_str() << std::endl;
 
 	// Check permissions
-	if (access(bfs::canonical(bfs::path(job.outfilename).parent_path()).string().c_str(), W_OK) == -1)
+	//if (access(bfs::canonical(bfs::path(job.outfilename).parent_path()).string().c_str(), W_OK) == -1)
+	// az: fixme
+	if (access(get_absolute_path(job.outfilename + "/../").c_str(), W_OK) == -1)
 	{
-	    const std::string message =
+	    /*const std::string message =
             (boost::format(_("Unable to create output for \"%s\": %s"))
                            % job.filename % strerror(errno)).str();
-		synfig::error(message.c_str());
+		synfig::error(message.c_str());*/
+		synfig::error(_("Unable to create output for \"%s\": %s"), job.filename.c_str(), strerror(errno));
 		synfig::error(_("Throwing out job..."));
 		return false;
 	}
@@ -162,12 +186,14 @@ bool setup_job(Job& job, const TargetParam& target_parameters)
 	{
 		if(!job.target)
 		{
-		    const std::string message =
+		    /*const std::string message =
                 (boost::format(_("Unknown target for \"%s\": %s"))
                                % job.filename % strerror(errno)).str();
-		    synfig::error(message.c_str());
-                    synfig::error(_("Throwing out job..."));
-                    return false;
+		    synfig::error(message.c_str());*/
+
+			synfig::error(_("Unknown target for \"%s\": %s"), job.filename.c_str(), strerror(errno));
+			synfig::error(_("Throwing out job..."));
+			return false;
 		}
 
 		job.sifout=false;
@@ -199,7 +225,10 @@ bool setup_job(Job& job, const TargetParam& target_parameters)
 void process_job (Job& job)
 {
 	VERBOSE_OUT(3) << job.filename.c_str() << " -- " << std::endl;
-	VERBOSE_OUT(3) << '\t'
+	synfig::info("\tw: %d, h: %d, a: %d, pxaspect: %f, imaspect: %f, span: %f", 
+		job.desc.get_w(), job.desc.get_h(), job.desc.get_antialias(),
+		job.desc.get_pixel_aspect(), job.desc.get_image_aspect(), job.desc.get_span());
+	/*VERBOSE_OUT(3) << '\t'
 				   << boost::format("w:%d, h:%d, a:%d, pxaspect:%f, imaspect:%f, span:%f")
                                     % job.desc.get_w()
                                     % job.desc.get_h()
@@ -207,9 +236,15 @@ void process_job (Job& job)
                                     % job.desc.get_pixel_aspect()
                                     % job.desc.get_image_aspect()
                                     % job.desc.get_span()
-                    << std::endl;
+                    << std::endl;*/
 
-	VERBOSE_OUT(3) << '\t'
+	synfig::info("\ttl: [%f,%f], br: [%f,%f], focus: [%f,%f]",
+				job.desc.get_tl()[0], job.desc.get_tl()[1],
+				job.desc.get_br()[0], job.desc.get_br()[1],
+				job.desc.get_focus()[0], job.desc.get_focus()[1]
+	);
+
+	/*VERBOSE_OUT(3) << '\t'
 				   << boost::format("tl:[%f,%f], br:[%f,%f], focus:[%f,%f]")
                                     % job.desc.get_tl()[0]
                                     % job.desc.get_tl()[1]
@@ -217,7 +252,7 @@ void process_job (Job& job)
                                     % job.desc.get_br()[1]
                                     % job.desc.get_focus()[0]
                                     % job.desc.get_focus()[1]
-                    << std::endl;
+                    << std::endl;*/
 
 	RenderProgress p;
 	p.task(job.filename + " ==> " + job.outfilename);
@@ -231,8 +266,8 @@ void process_job (Job& job)
 	else
 	{
 		VERBOSE_OUT(1) << _("Rendering...") << std::endl;
-		boost::chrono::system_clock::time_point start_timepoint =
-            boost::chrono::system_clock::now();
+		std::chrono::system_clock::time_point start_timepoint =
+            std::chrono::system_clock::now();
 
 		// Call the render member of the target
 		if(!job.target->render(&p))
@@ -240,8 +275,8 @@ void process_job (Job& job)
 
 		if(SynfigToolGeneralOptions::instance()->should_print_benchmarks())
         {
-            boost::chrono::duration<double> duration =
-                boost::chrono::system_clock::now() - start_timepoint;
+            std::chrono::duration<double> duration =
+                std::chrono::system_clock::now() - start_timepoint;
 
             std::cout << job.filename.c_str()
                       << _(": Rendered in ")

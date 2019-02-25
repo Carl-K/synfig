@@ -281,6 +281,8 @@ IconController::init_icons(const synfig::String& path_to_icons)
 	INIT_STOCK_ICON(encapsulate, "group_icon." IMAGE_EXT, _("Group"));
 	// TODO: icon for 'Group Layer into Switch' action
 	INIT_STOCK_ICON(encapsulate_switch, "layer_other_switch_icon." IMAGE_EXT, _("Group into Switch"));
+	// TODO: icon for 'Group Layer into Filter' action
+	INIT_STOCK_ICON(encapsulate_filter, "layer_icon." IMAGE_EXT, _("Group into Filter"));
 	INIT_STOCK_ICON(select_all_child_layers, "select_all_child_layers_icon." IMAGE_EXT, _("Select All Child Layers"));
 
 	INIT_STOCK_ICON(clear_undo, "clear_undo_icon." IMAGE_EXT, _("Clear Undo Stack"));
@@ -319,6 +321,9 @@ IconController::init_icons(const synfig::String& path_to_icons)
 	INIT_STOCK_ICON(animate_seek_next_keyframe, "animate_seek_next_keyframe_icon." IMAGE_EXT, _("Seek to Next Keyframe"));
 	INIT_STOCK_ICON(animate_seek_end, "animate_seek_end_icon." IMAGE_EXT, _("Seek to End"));
 	INIT_STOCK_ICON(animate_loop, "animate_loop_icon." IMAGE_EXT, _("Animate Loop"));
+	INIT_STOCK_ICON(animate_bounds, "animate_bounds_icon." IMAGE_EXT, _("Play Bounds"));
+	INIT_STOCK_ICON(animate_bound_lower, "animate_bound_lower_icon." IMAGE_EXT, _("Lower Bound"));
+	INIT_STOCK_ICON(animate_bound_upper, "animate_bound_upper_icon." IMAGE_EXT, _("Upper Bound"));
 
 	INIT_STOCK_ICON(add_to_group, "action_add_to_set_icon." IMAGE_EXT, _("Add Layer to Set"));
 	INIT_STOCK_ICON(remove_from_group, "action_remove_from_set_icon." IMAGE_EXT, _("Remove Layer from Set"));
@@ -344,6 +349,8 @@ IconController::init_icons(const synfig::String& path_to_icons)
 	INIT_STOCK_ICON(toggle_snap_guide, "snap_guide_icon." IMAGE_EXT, _("Toggle snap guide"));
 
 	INIT_STOCK_ICON(toggle_onion_skin, "onion_skin_icon." IMAGE_EXT, _("Toggle onion skin"));
+
+	INIT_STOCK_ICON(toggle_background_rendering, "background_rendering_icon." IMAGE_EXT, _("Toggle background rendering"));
 
 	INIT_STOCK_ICON(increase_resolution, "incr_resolution_icon." IMAGE_EXT, _("Increase resolution"));
 	INIT_STOCK_ICON(decrease_resolution, "decr_resolution_icon." IMAGE_EXT, _("Decrease resolution"));

@@ -137,6 +137,7 @@ Import::set_param(const String & param, const ValueBase &value)
 		String independent_filename = CanvasFileNaming::make_canvas_independent_filename(get_canvas()->get_file_name(), full_filename);
 
 		// If we are already loaded, don't reload
+		// here we need something to force reload if file is changed
 		if(this->independent_filename==independent_filename && importer)
 		{
 			param_filename.set(filename);
@@ -164,11 +165,12 @@ Import::set_param(const String & param, const ValueBase &value)
 		}
 
 		Time time_offset = param_time_offset.get(Time());
-		Time time = get_time_mark() + time_offset;
+		Time time = (get_time_mark() == Time::end()) ? time_offset : get_time_mark() + time_offset;
 		if (!newimporter->is_animated())
 			time = Time(0);
 
-		rendering_surface = newimporter->get_frame(get_canvas()->rend_desc(), time);
+		rendering_surface = new rendering::SurfaceResource(
+			newimporter->get_frame(get_canvas()->rend_desc(), time) );
 		importer=newimporter;
 		param_filename.set(filename);
 
@@ -213,8 +215,19 @@ Import::get_param_vocab()const
 void
 Import::set_time_vfunc(IndependentContext context, Time time)const
 {
+	//Time time_offset = param_time_offset.get(Time());
+	//if(get_amount() && importer && importer->is_animated())
+	//	rendering_surface = new rendering::SurfaceResource(
+	//		importer->get_frame(get_canvas()->rend_desc(), time+time_offset) );
+	context.set_time(time);
+}
+
+void
+Import::load_resources_vfunc(IndependentContext context, Time time)const
+{
 	Time time_offset=param_time_offset.get(Time());
 	if(get_amount() && importer && importer->is_animated())
-		rendering_surface = importer->get_frame(get_canvas()->rend_desc(), time+time_offset);
-	context.set_time(time);
+		rendering_surface = new rendering::SurfaceResource(
+			importer->get_frame(get_canvas()->rend_desc(), time+time_offset) );
+	context.load_resources(time);
 }

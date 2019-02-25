@@ -49,11 +49,10 @@
 #include <synfig/localization.h>
 #include <synfig/paramdesc.h>
 
-#include <synfig/rendering/common/task/tasksurface.h>
-#include <synfig/rendering/common/task/tasksurfaceempty.h>
-#include <synfig/rendering/common/task/tasksurfaceresample.h>
 #include <synfig/rendering/software/surfacesw.h>
 #include <synfig/rendering/software/surfaceswpacked.h>
+#include <synfig/rendering/common/task/tasktransformation.h>
+#include <synfig/rendering/common/task/taskpixelprocessor.h>
 
 #endif
 
@@ -70,32 +69,34 @@ using namespace etl;
 /* === M E T H O D S ======================================================= */
 
 synfig::Layer_Bitmap::Layer_Bitmap():
-    Layer_Composite	(1.0,Color::BLEND_COMPOSITE),
+	Layer_Composite	(1.0,Color::BLEND_COMPOSITE),
 	method                  (SOFTWARE),
 	surface_modification_id (0),
 	param_tl                (Point(-0.5,0.5)),
 	param_br                (Point(0.5,-0.5)),
 	param_c                 (int(1)),
 	param_gamma_adjust      (Real(1.0)),
-	trimmed                 (false)
+	trimmed                 (false),
+	left                    (0),
+	top                     (0),
+	width                   (0),
+	height                  (0)
 {
 	SET_INTERPOLATION_DEFAULTS();
 	SET_STATIC_DEFAULTS();
 }
 
+/*
 synfig::Surface&
 Layer_Bitmap::get_surface() const
 {
-	if (!rendering_surface || !rendering_surface->is_created())
-	{
-		rendering_surface = new rendering::SurfaceSW();
-		rendering_surface->set_size(128, 128);
-		rendering_surface->create();
-	}
-	if (!rendering::SurfaceSW::Handle::cast_dynamic(rendering_surface))
-		rendering_surface = new rendering::SurfaceSW(*rendering_surface);
-	return rendering::SurfaceSW::Handle::cast_dynamic(rendering_surface)->get_surface();
+	// TODO: not thread safe, return SurfaceResource instread
+	if (!rendering_surface || !rendering_surface->is_exists())
+		rendering_surface->create(128, 128);
+	rendering::SurfaceResource::LockWrite<rendering::SurfaceSW> lock(rendering_surface);
+	return lock->get_surface();
 }
+*/
 
 bool
 synfig::Layer_Bitmap::set_param(const String & param, const ValueBase & value)
@@ -249,7 +250,7 @@ synfig::Layer_Bitmap::get_color(Context context, const Point &pos)const
 
 	Point surface_pos;
 
-	if(!get_amount() || !rendering_surface || !rendering_surface->is_created())
+	if(!get_amount() || !rendering_surface || !rendering_surface->is_exists())
 		return context.get_color(pos);
 
 	surface_pos=pos-tl;
@@ -283,39 +284,40 @@ synfig::Layer_Bitmap::get_color(Context context, const Point &pos)const
 
 			Color ret(Color::alpha());
 
-			if (rendering::SurfaceSWPacked::Handle surface_packed = rendering::SurfaceSWPacked::Handle::cast_dynamic(rendering_surface))
+			rendering::SurfaceResource::LockReadBase lsurf(rendering_surface);
+			if (lsurf.convert<rendering::SurfaceSWPacked>(false))
 			{
-				reader.open(surface_packed->get_surface());
-				typedef etl::sampler<ColorAccumulator, float, ColorAccumulator, rendering::software::PackedSurface::Reader::reader_cook> Sampler;
+				typedef rendering::software::PackedSurface PackedSurface;
+				typedef PackedSurface::Sampler Sampler;
 
+				assert(lsurf.get_handle().type_is<rendering::SurfaceSWPacked>());
+				reader.open( lsurf.cast<rendering::SurfaceSWPacked>()->get_surface() );
 				switch(c)
 				{
 				case 6:	// Undefined
 				case 5:	// Undefined
 				case 4:	// Undefined
 				case 3:	// Cubic
-					ret = ColorPrep::uncook_static(Sampler::cubic_sample(&reader, w, h, surface_pos[0],surface_pos[1]));
+					ret = ColorPrep::uncook_static(Sampler::cubic_sample(&reader, surface_pos[0], surface_pos[1]));
 					break;
 				case 2:	// Cosine
-					ret = ColorPrep::uncook_static(Sampler::cosine_sample(&reader, w, h, surface_pos[0],surface_pos[1]));
+					ret = ColorPrep::uncook_static(Sampler::cosine_sample(&reader, surface_pos[0], surface_pos[1]));
 					break;
 				case 1:	// Linear
-					ret = ColorPrep::uncook_static(Sampler::linear_sample(&reader, w, h, surface_pos[0],surface_pos[1]));
+					ret = ColorPrep::uncook_static(Sampler::linear_sample(&reader, surface_pos[0], surface_pos[1]));
 					break;
 				case 0:	// Nearest Neighbor
 				default:
-					{
-						int x(min(w-1,max(0,round_to_int(surface_pos[0]))));
-						int y(min(h-1,max(0,round_to_int(surface_pos[1]))));
-						ret=reader.get_pixel(x, y);
-					}
+					ret = ColorPrep::uncook_static(Sampler::nearest_sample(&reader, surface_pos[0], surface_pos[1]));
+					break;
 				break;
 				}
 			}
 			else
+			if (lsurf.convert<rendering::SurfaceSW>())
 			{
-				Surface &surface = get_surface();
-
+				assert(lsurf.get_handle().type_is<rendering::SurfaceSW>());
+				const Surface &surface = lsurf.cast<rendering::SurfaceSW>()->get_surface();
 				switch(c)
 				{
 				case 6:	// Undefined
@@ -375,7 +377,10 @@ Layer_Bitmap::accelerated_render(Context context,Surface *surface,int quality, c
 	int c(param_c.get(int()));
 	Real gamma_adjust(param_gamma_adjust.get(Real()));
 
-	Surface &layer_surface = get_surface();
+	rendering::SurfaceResource::LockRead<rendering::SurfaceSW> lsurf(rendering_surface);
+	if (!lsurf)
+		return false;
+	Surface &layer_surface = lsurf.cast<rendering::SurfaceSW>()->get_surface(); // const cast
 
 	int interp=c;
 	if(quality>=10)
@@ -502,44 +507,6 @@ Layer_Bitmap::accelerated_render(Context context,Surface *surface,int quality, c
 	Surface::alpha_pen pen(surface->get_pen(x_start,y_start));
 	pen.set_alpha(get_amount());
 	pen.set_blend_method(get_blend_method());
-
-	//check if we should use the downscale filtering
-	if(quality <= 7)
-	{
-		//the stride of the value should be inverted because we want to downsample
-		//when the stride is small, not big
-		//int multw = (int)ceil(indx);
-		//int multh = (int)ceil(indy);
-
-		if(indx > 1.7 || indy > 1.7)
-		{
-			/*synfig::info("Decided to downsample? ratios - (%f,%f) -> (%d,%d)",
-						indx, indy, multw, multh);	*/
-
-			//use sample rect here...
-
-			float iny, inx;
-			int x,y;
-
-			//Point sample - truncate
-			iny = iny_start;//+0.5f;
-			for(y = y_start; y < y_end; ++y, pen.inc_y(), iny += indy)
-			{
-				inx = inx_start;//+0.5f;
-				for(x = x_start; x < x_end; x++, pen.inc_x(), inx += indx)
-				{
-					Color rc = layer_surface.sample_rect_clip(inx,iny,inx+indx,iny+indy);
-					pen.put_value(filter(rc));
-				}
-				pen.dec_x(x_end-x_start);
-			}
-
-			//Color c = (*surface)[0][0];
-			//synfig::info("ValueBase of first pixel = (%f,%f,%f,%f)",c.get_r(),c.get_g(),c.get_b(),c.get_a());
-
-			return true;
-		}
-	}
 
 	//perform normal interpolation
 	if(interp==0)
@@ -671,20 +638,38 @@ rendering::Task::Handle
 Layer_Bitmap::build_composite_task_vfunc(ContextParams /* context_params */) const
 {
 	if ( !rendering_surface
-	  || !rendering_surface->is_created() )
-		return new rendering::TaskSurfaceEmpty();
+	  || !rendering_surface->is_exists() )
+		return rendering::Task::Handle();
+
+	ColorReal gamma = (Color::value_type)param_gamma_adjust.get(Real());
+	Point tl(param_tl.get(Point()));
+	Point br(param_br.get(Point()));
+	Matrix m;
+	m.m00 = (br[0] - tl[0]); m.m20 = tl[0];
+	m.m11 = (br[1] - tl[1]); m.m21 = tl[1];
+
+	rendering::Task::Handle task;
 
 	rendering::TaskSurface::Handle task_surface(new rendering::TaskSurface());
 	task_surface->target_surface = rendering_surface;
-	task_surface->init_target_rect(
-		RectInt(0, 0, task_surface->target_surface->get_width(), task_surface->target_surface->get_height()),
-		param_tl.get(Vector()),
-		param_br.get(Vector()) );
+	task_surface->target_rect = RectInt(VectorInt(), rendering_surface->get_size());
+	task_surface->source_rect = Rect(0.0, 0.0, 1.0, 1.0);
+	task = task_surface;
 
-	rendering::TaskSurfaceResample::Handle task_resample(new rendering::TaskSurfaceResample());
-	task_resample->gamma = (Color::value_type)param_gamma_adjust.get(Real());
-	task_resample->interpolation = (Color::Interpolation)param_c.get(int());
-	task_resample->antialiasing = true;
-	task_resample->sub_task() = task_surface;
-	return task_resample;
+	rendering::TaskTransformationAffine::Handle task_transform = new rendering::TaskTransformationAffine();
+	task_transform->interpolation = (Color::Interpolation)param_c.get(int());
+	task_transform->transformation->matrix = m;
+	task_transform->sub_task() = task;
+	task = task_transform;
+
+	rendering::TaskPixelGamma::Handle task_gamma = new rendering::TaskPixelGamma();
+	if (!approximate_equal_lp(gamma, 1.f)) {
+		task_gamma->gamma[0] = gamma;
+		task_gamma->gamma[1] = gamma;
+		task_gamma->gamma[2] = gamma;
+		task_gamma->sub_task() = task;
+		task = task_gamma;
+	}
+
+	return task;
 }

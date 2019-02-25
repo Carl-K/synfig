@@ -232,7 +232,8 @@ LayerTreeStore::get_value_vfunc(const Gtk::TreeModel::iterator& iter, int column
 						layer->get_parent_paste_canvas_layer() );
 				if(paste)
 				{
-					etl::handle<synfig::Canvas> sub_canvas=paste->get_param("canvas").get(sub_canvas);
+					//etl::handle<synfig::Canvas> sub_canvas=paste->get_param("canvas").get(sub_canvas);
+					Canvas::Handle sub_canvas=paste->get_param("canvas").get(Canvas::Handle());
 					if(sub_canvas && !sub_canvas->is_inline())
 					{
 						Gtk::TreeRow row=*iter;
@@ -447,7 +448,7 @@ LayerTreeStore::set_value_impl(const Gtk::TreeModel::iterator& iter, int column,
 		Gtk::TreeStore::set_value_impl(iter,column,value);
 
 	}
-	catch(std::exception x)
+	catch (std::exception& x)
 	{
 		g_warning("%s", x.what());
 	}
@@ -878,12 +879,12 @@ LayerTreeStore::set_row_layer(Gtk::TreeRow &row, const synfig::Layer::Handle &ha
 				set_row_ghost(row_, *i, --index);
 			}
 
-			for(Canvas::reverse_iterator iter = canvas->rbegin(); iter != canvas->rend(); ++iter)
+			for(Canvas::reverse_iterator i = canvas->rbegin(); i != canvas->rend(); ++i)
 			{
 				Gtk::TreeRow row_(*(prepend(row.children())));
-				bool xx = (bool)impossible_existant_layers.count((*iter)->get_description());
+				bool xx = (bool)impossible_existant_layers.count((*i)->get_description());
 				row_[model.layer_impossible] = xx;
-				set_row_layer(row_,*iter);
+				set_row_layer(row_,*i);
 			}
 
 			continue;

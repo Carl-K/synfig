@@ -345,8 +345,8 @@ png_trgt_spritesheet::read_png_file()
 
     if (png_get_color_type(in_image.png_ptr, in_image.info_ptr) != PNG_COLOR_TYPE_RGBA)
 	{
-        synfig::error(strprintf("[process_file] color_type of input file must be PNG_COLOR_TYPE_RGBA (%d) (is %d)",
-			PNG_COLOR_TYPE_RGBA, png_get_color_type(in_image.png_ptr, in_image.info_ptr)));
+        synfig::error("[process_file] color_type of input file must be PNG_COLOR_TYPE_RGBA (%d) (is %d)",
+			PNG_COLOR_TYPE_RGBA, png_get_color_type(in_image.png_ptr, in_image.info_ptr));
 		return false;
 	}
 
@@ -375,7 +375,8 @@ png_trgt_spritesheet::read_png_file()
 	
     for (unsigned int y = 0; y < in_image.height; y++)
             delete []row_pointers[y];
-    delete row_pointers;
+    
+	delete[] row_pointers;
 	cout << "row_pointers deleted" << endl;
 	return true;
 }
@@ -449,18 +450,27 @@ png_trgt_spritesheet::write_png_file()
     char description[] = "Description";
     char software   [] = "Software";
     char synfig     [] = "SYNFIG";
-    // Output any text info along with the file
-    png_text comments[]=
-    {
-        {   PNG_TEXT_COMPRESSION_NONE, title, const_cast<char *>(get_canvas()->get_name().c_str()),
-            strlen(get_canvas()->get_name().c_str())
-        },
-        {   PNG_TEXT_COMPRESSION_NONE, description, const_cast<char *>(get_canvas()->get_description().c_str()),
-            strlen(get_canvas()->get_description().c_str())
-        },
-        { PNG_TEXT_COMPRESSION_NONE, software, synfig, strlen(synfig) },
-    };
-    png_set_text(png_ptr,info_ptr,comments,sizeof(comments)/sizeof(png_text));
+
+	// Output any text info along with the file
+	png_text comments[3];
+	memset(comments, 0, sizeof(comments));
+
+	comments[0].compression = PNG_TEXT_COMPRESSION_NONE;
+	comments[0].key         = title;
+	comments[0].text        = const_cast<char *>(get_canvas()->get_name().c_str());
+	comments[0].text_length = strlen(comments[0].text);
+
+	comments[1].compression = PNG_TEXT_COMPRESSION_NONE;
+	comments[1].key         = description;
+	comments[1].text        = const_cast<char *>(get_canvas()->get_description().c_str());
+	comments[1].text_length = strlen(comments[1].text);
+
+	comments[2].compression = PNG_TEXT_COMPRESSION_NONE;
+	comments[2].key         = software;
+	comments[2].text        = synfig;
+	comments[2].text_length = strlen(comments[2].text);
+
+	png_set_text(png_ptr, info_ptr, comments, sizeof(comments)/sizeof(png_text));
 
     png_write_info_before_PLTE(png_ptr, info_ptr);
     png_write_info(png_ptr, info_ptr);
@@ -468,12 +478,13 @@ png_trgt_spritesheet::write_png_file()
     //Writing spritesheet into png image
 	for (cur_out_image_row = 0; cur_out_image_row < sheet_height; cur_out_image_row++)
 	{
-		convert_color_format(buffer, 
-		                     color_data[cur_out_image_row],
-		                     sheet_width, 
-		                     PF_RGB|(get_alpha_mode()==TARGET_ALPHA_MODE_KEEP)?PF_A:PF_RGB, //Note: PF_RGB == 0
-		                     gamma());
-	
+		color_to_pixelformat(
+			buffer,
+			color_data[cur_out_image_row],
+            //PF_RGB|(get_alpha_mode()==TARGET_ALPHA_MODE_KEEP)?PF_A:PF_RGB, //Note: PF_RGB == 0
+			(get_alpha_mode() == TARGET_ALPHA_MODE_KEEP) ? PF_RGB | PF_A : PF_RGB, //Note: PF_RGB == 0
+			&gamma(),
+			sheet_width );
 		setjmp(png_jmpbuf(png_ptr));
 		png_write_row(png_ptr,buffer);
 	}

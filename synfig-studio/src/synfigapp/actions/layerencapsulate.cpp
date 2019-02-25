@@ -87,7 +87,7 @@ Action::LayerEncapsulate::get_param_vocab()
 	);
 	ret.push_back(ParamDesc("description",Param::TYPE_STRING)
 		.set_local_name(_("Description"))
-		.set_desc(_("Description of new switch"))
+		.set_desc(_("Description of new group"))
 		.set_optional()
 	);
 
@@ -166,7 +166,7 @@ Action::LayerEncapsulate::prepare()
 	if (!description.empty()) new_layer->set_description(description);
 	new_layer->set_param("canvas",child_canvas);
         
-        new_layer->set_param("children_lock",children_lock);
+        new_layer->set_param("children_lock", ValueBase(children_lock));
 
 	int target_depth(lowest_depth());
 
@@ -195,11 +195,11 @@ Action::LayerEncapsulate::prepare()
 		add_action(action);
 	}
 
-	std::list<synfig::Layer::Handle>::reverse_iterator iter;
+	std::list<synfig::Layer::Handle>::reverse_iterator i;
 
-	for(iter=layers.rbegin();iter!=layers.rend();++iter)
+	for(i=layers.rbegin();i!=layers.rend();++i)
 	{
-		Layer::Handle layer(*iter);
+		Layer::Handle layer(*i);
 
 		Canvas::Handle subcanvas(layer->get_canvas());
 

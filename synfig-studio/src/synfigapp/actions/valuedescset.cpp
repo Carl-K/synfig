@@ -1066,7 +1066,7 @@ Action::ValueDescSet::prepare()
 			// value_node->find throws an exception
 			// when no waypoint is found at given time
 			waypoint=*iter;
-		}catch(Exception::NotFound)
+		}catch(Exception::NotFound&)
 		{
 			waypoint=value_node->new_waypoint_at_time(time);
 			Interpolation inter=value_node->get_interpolation();
@@ -1128,7 +1128,7 @@ Action::ValueDescSet::prepare()
 								 _("Yes"),
 								 synfigapp::UIInterface::RESPONSE_OK ))
 						{
-							throw Error(_("Cancelled by user"));
+							throw Error(Error::TYPE_UNABLE); // Issue  #693
 						}
 					}
 

@@ -131,13 +131,13 @@ public:
 	void set_matrix(const Matrix &matrix)
 	{
 		if (matrix.is_identity()) *this = Transformation();
-		Vector axis_x(matrix.get_axis_x());
-		Vector axis_y(matrix.get_axis_y());
+		Vector axis_x(matrix.axis_x());
+		Vector axis_y(matrix.axis_y());
 		angle = axis_x.angle();
 		skew_angle = axis_y.angle() - angle - Angle::deg(90.0);
 		scale[0] = axis_x.mag();
 		scale[1] = axis_y.mag();
-		offset = matrix.get_offset();
+		offset = matrix.offset();
 	}
 
 	explicit Transformation(const Matrix &matrix)
@@ -175,18 +175,18 @@ public:
 	Vector transform(const Vector &v, bool translate = true) const
 		{ return get_matrix().get_transformed(v, translate); }
 	Transformation transform(const Transformation &transformation) const
-		{ return Transformation( transformation.get_matrix()*get_matrix() ); }
+		{ return Transformation( get_matrix()*transformation.get_matrix() ); }
 	Matrix transform(const Matrix &matrix) const
-		{ return matrix*get_matrix(); }
+		{ return get_matrix()*matrix; }
 	Rect transform_bounds(const Rect &bounds) const
 		{ return transform_bounds(get_matrix(), bounds); }
 
 	Vector back_transform(const Vector &v, bool translate = true) const
 		{ return get_inverted_matrix().get_transformed(v, translate); }
 	Transformation back_transform(const Transformation &transformation) const
-		{ return Transformation( transformation.get_matrix()*get_inverted_matrix() ); }
+		{ return Transformation( get_inverted_matrix()*transformation.get_matrix() ); }
 	Matrix back_transform(const Matrix &matrix) const
-		{ return matrix*get_inverted_matrix(); }
+		{ return get_inverted_matrix()*matrix; }
 	Rect back_transform_bounds(const Rect &bounds) const
 		{ return transform_bounds(get_inverted_matrix(), bounds); }
 

@@ -1,8 +1,8 @@
 # $Id$
 
 # -- I N I T --------------------------------------------------
-
-AC_INIT([Extended Template Library],[1.3.4],[https://github.com/synfig/synfig/issues],[ETL])
+AC_PREREQ(2.59)
+AC_INIT([Extended Template Library],[1.3.11],[https://github.com/synfig/synfig/issues],[ETL])
 AC_REVISION
 
 AC_CONFIG_AUX_DIR(config)
@@ -24,13 +24,19 @@ AC_SUBST(SVN_REPOSITORY)
 
 
 # -- P R O G R A M S ------------------------------------------
-
+AC_LANG([C++])
+AC_REQUIRE_CPP
+AC_PROG_CXX
 AC_PROG_CC
 AC_PROG_CXX
+AC_PROG_CXXCPP
 AC_PROG_INSTALL
 AC_PROG_RANLIB
+AX_CXX_COMPILE_STDCXX([11], [noext])
 
-AC_LANG([C++])
+# that is not working, btw
+test "x$CXX" == "x" && AC_MSG_ERROR([Required program 'c++' not found.])
+
 
 AC_ARG_WARNINGS
 AC_ARG_OPTIMIZATION
@@ -65,6 +71,9 @@ ETL_DEPS
 
 # -- O U T P U T ----------------------------------------------
 
+etlincludedir=$includedir/ETL
+AC_SUBST(etlincludedir)
+
 AC_SUBST(CFLAGS)
 AC_SUBST(CPPFLAGS)
 AC_SUBST(LDFLAGS)
@@ -83,7 +92,7 @@ AC_OUTPUT
 echo "
 $PACKAGE_NAME v.$VERSION
 Configuration Summary
-- - - - - -
+- - - - - - - - - - - - - - - - - - - - - - - - -
 
 Install Prefix -------------------> $prefix
 Target Platform ------------------> $host

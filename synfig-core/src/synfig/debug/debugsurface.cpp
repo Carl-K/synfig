@@ -78,19 +78,15 @@ DebugSurface::save_to_file(const void *buffer, int width, int height, int pitch,
 			pitch = width * sizeof(Color);
 
 		PixelFormat pf(PF_BGR|PF_A);
-		size_t total_bytes = width * height * synfig::channels(pf);
-		unsigned char *byte_buffer = (unsigned char*)malloc(total_bytes);
-		if (!byte_buffer) return;
+		int ps = pixel_size(pf);
+		int row_bytes = ps*width;
+		int total_bytes = row_bytes*height;
+		unsigned char *byte_buffer = new unsigned char[total_bytes];
 
 		// write rows in reverse order (for TGA format)
-		unsigned char *dest(byte_buffer);
-		Gamma gamma;
-		for(int y = height-1; y >= 0; --y)
-		{
-			const Color *src = (const Color *)((const unsigned char*)buffer + pitch*y);
-			for(int x = 0; x < width; ++x, ++src)
-				dest = Color2PixelFormat( src->clamped(), pf, dest, gamma );
-		}
+		color_to_pixelformat(
+			byte_buffer + total_bytes - row_bytes,
+			(const Color*)buffer, pf, NULL, width, height, -row_bytes, pitch );
 
 		// create file
 		FileSystem::WriteStream::Handle ws =
@@ -117,7 +113,7 @@ DebugSurface::save_to_file(const void *buffer, int width, int height, int pitch,
 		// write data
 		ws->write_whole_block(byte_buffer, total_bytes);
 
-		free(byte_buffer);
+		delete[] byte_buffer;
 	}
 }
 
@@ -133,13 +129,11 @@ DebugSurface::save_to_file(const Surface &surface, const String &filename, bool 
 void
 DebugSurface::save_to_file(const rendering::Surface &surface, const String &filename, bool overwrite)
 {
-	if (surface.is_created())
-	{
+	if (surface.is_exists()) {
 		std::vector<Color> buffer(surface.get_pixels_count());
 		surface.get_pixels(&buffer.front());
 		save_to_file(&buffer.front(), surface.get_width(), surface.get_height(), 0, filename, overwrite);
-	}
-	else
+	} else
 		save_to_file(NULL, 0, 0, 0, filename, overwrite);
 }
 
@@ -150,4 +144,19 @@ DebugSurface::save_to_file(const rendering::Surface::Handle &surface, const Stri
 		save_to_file(*surface, filename, overwrite);
 	else
 		save_to_file(NULL, 0, 0, 0, filename, overwrite);
+}
+
+void
+DebugSurface::save_to_file(const rendering::SurfaceResource::Handle &surface, const String &filename, bool overwrite) {
+	rendering::SurfaceResource::LockReadBase lock(surface);
+	if (lock.convert(rendering::Surface::Token::Handle(), false, true)) {
+		save_to_file(*lock.get_surface(), filename, overwrite);
+	} else
+	if (surface && surface->is_exists()) {
+		VectorInt size = surface->get_size();
+		std::vector<Color> buffer(size[0] * size[1]);
+		save_to_file(&buffer.front(), size[0], size[1], 0, filename, overwrite);
+	} else {
+		save_to_file(NULL, 0, 0, 0, filename, overwrite);
+	}
 }

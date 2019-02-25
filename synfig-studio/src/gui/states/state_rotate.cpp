@@ -122,7 +122,7 @@ class studio::StateRotate_Context : public sigc::trackable
 public:
 
 	bool get_scale_flag()const { return checkbutton_scale.get_active(); }
-	void set_scale_flag(bool x) { return checkbutton_scale.set_active(x); refresh_scale_flag(); }
+	void set_scale_flag(bool x) { checkbutton_scale.set_active(x); refresh_scale_flag(); }
 
 	Smach::event_result event_stop_handler(const Smach::event& x);
 	Smach::event_result event_refresh_tool_options(const Smach::event& x);
@@ -241,8 +241,10 @@ StateRotate_Context::event_refresh_tool_options(const Smach::event& /*x*/)
 Smach::event_result
 StateRotate_Context::event_stop_handler(const Smach::event& /*x*/)
 {
-	throw &state_normal;
-	return Smach::RESULT_OK;
+	canvas_view_->stop();
+	return Smach::RESULT_ACCEPT;
+	//throw &state_normal;
+	//return Smach::RESULT_OK;
 }
 
 StateRotate_Context::~StateRotate_Context()
@@ -261,6 +263,7 @@ StateRotate_Context::~StateRotate_Context()
 
 
 DuckDrag_Rotate::DuckDrag_Rotate():
+	original_angle(),
 	original_mag(),
 	bad_drag(),
 	move_only(),

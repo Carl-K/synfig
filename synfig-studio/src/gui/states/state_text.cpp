@@ -373,9 +373,9 @@ StateText_Context::increment_id()
 	set_id(id);
 }
 
-StateText_Context::StateText_Context(CanvasView *canvas_view):
-	canvas_view(canvas_view),
-	is_working(*canvas_view),
+StateText_Context::StateText_Context(CanvasView *canvasView):
+	canvas_view(canvasView),
+	is_working(*canvasView),
 	duckmatic_push(get_work_area()),
 	prev_workarea_layer_status_(get_work_area()->get_allow_layer_clicks()),
 	settings(synfigapp::Main::get_selected_input_device()->settings()),
@@ -518,7 +518,8 @@ StateText_Context::StateText_Context(CanvasView *canvas_view):
 	options_table.set_row_spacings(GAP); // row gap
 	options_table.set_row_spacing(0, GAP*2); // the gap between first and second row.
 	options_table.set_row_spacing(2, 1); // row gap between label and icon of layer type
-	options_table.set_row_spacing(10, 0); // the final row using border width of table
+	//options_table.set_row_spacing(9, 0); // the final row using border width of table
+	options_table.set_margin_bottom(0);
 
 	options_table.show_all();
 
@@ -631,11 +632,7 @@ StateText_Context::make_text(const Point& _point)
 	if (get_paragraph_flag())
 		App::dialog_paragraph(_("Text Paragraph"), _("Enter text here:"), text);
 	else
-		App::dialog_entry(_("Input text"),
-				_("Text: "),
-				text,
-				_("Cancel"),
-				_("Ok"));
+		if (!App::dialog_entry(_("Input text"), _("Text: "), text, _("Cancel"), _("Ok"))) return;
 
 	egress_on_selection_change=false;
 	layer=get_canvas_interface()->add_layer_to("text",canvas,depth);
@@ -668,10 +665,10 @@ StateText_Context::make_text(const Point& _point)
 
 	layer->set_param("family",get_family());
 	get_canvas_interface()->signal_layer_param_changed()(layer,"family");
-
+	/*
 	layer->set_description(get_id());
 	get_canvas_interface()->signal_layer_new_description()(layer,layer->get_description());
-
+	*/
 	egress_on_selection_change=false;
 	get_canvas_interface()->get_selection_manager()->clear_selected_layers();
 	get_canvas_interface()->get_selection_manager()->set_selected_layers(layer_selection);

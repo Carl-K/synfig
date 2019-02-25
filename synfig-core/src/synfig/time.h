@@ -28,6 +28,8 @@
 
 /* === H E A D E R S ======================================================= */
 
+#include <cmath>
+
 #include "string.h"
 
 /* === M A C R O S ========================================================= */
@@ -46,6 +48,7 @@ class Time
 {
 public:
 	typedef double value_type;
+	typedef long long ticks_type;
 
 	/*!	\enum Format
 	**	\todo writeme
@@ -73,7 +76,7 @@ public:
 
 	Time(int x):value_(x) { }
 
-	Time(int hour, int minute, float second):value_(static_cast<value_type>(second+hour*3600+minute*60)) { }
+	Time(int hour, int minute, float second):value_(static_cast<value_type>(hour*3600 + minute*60 + second)) { }
 
 	//! Constructs Time from the given string.
 	/*!	\note If the string references frames, then the
@@ -82,7 +85,7 @@ public:
 	**	of the current Canvas)
 	**	The frame count will be ignored if the
 	**	FPS is not given. */
-	Time(const String &string, float fps=0);
+	explicit Time(const String &string, float fps=0);
 
 	//! Marks the exclusive negative boundary of time
 	static const Time begin() { return static_cast<synfig::Time>(-32767.0f*512.0f); }
@@ -94,11 +97,15 @@ public:
 	static const Time zero() { return static_cast<synfig::Time>(0); }
 
 	//! The amount of allowable error in calculations
-	static const Time epsilon() { return static_cast<synfig::Time>(epsilon_()); }
+	static Time epsilon() { return static_cast<synfig::Time>(epsilon_()); }
+
+	//! The duration of discrete tick used for values comparison
+	static value_type tick() { return static_cast<value_type>(0.1*epsilon_()); }
 
 	//! Returns a string describing the current time value
 	/*!	\see Format */
-	String get_string(float fps=0, Time::Format format=FORMAT_NORMAL)const;
+	String get_string(float fps=0, Time::Format format=FORMAT_NORMAL) const;
+	std::string get_string(Time::Format format) const;
 
 #ifdef _DEBUG
 	const char *c_str()const;
@@ -110,11 +117,15 @@ public:
 	//! Rounds time to the nearest frame for the given frame rate, \a fps
 	Time round(float fps)const;
 
-	bool is_equal(const Time& rhs)const { return (value_>rhs.value_)?value_-rhs.value_<=epsilon_():rhs.value_-value_<=epsilon_(); }
-	bool is_less_than(const Time& rhs)const { return rhs.value_-value_ > epsilon_(); }
-	bool is_more_than(const Time& rhs)const { return value_-rhs.value_ > epsilon_(); }
+	//! The discrete representation to use in std::map and std::set
+	ticks_type ticks() const
+		{ return (long long)::round(value_/(tick())); }
 
-	operator double()const { return value_; }
+	bool is_equal(const Time& rhs) const { return ticks() == rhs.ticks(); }
+	bool is_less_than(const Time& rhs) const { return ticks() < rhs.ticks(); }
+	bool is_more_than(const Time& rhs) const { return rhs.is_less_than(*this); }
+
+	operator value_type()const { return value_; }
 
 	template<typename U> bool operator<(const U& rhs)const { return value_<rhs; }
 	template<typename U> bool operator>(const U& rhs)const { return value_>rhs; }
@@ -123,21 +134,12 @@ public:
 	template<typename U> bool operator==(const U& rhs)const { return value_==rhs; }
 	template<typename U> bool operator!=(const U& rhs)const { return value_!=rhs; }
 
-#if 0
-	bool operator<(const Time& rhs)const { return value_<rhs.value_; }
-	bool operator>(const Time& rhs)const { return value_>rhs.value_; }
-	bool operator<=(const Time& rhs)const { return value_<=rhs.value_; }
-	bool operator>=(const Time& rhs)const { return value_>=rhs.value_; }
-	bool operator==(const Time& rhs)const { return value_==rhs.value_; }
-	bool operator!=(const Time& rhs)const { return value_!=rhs.value_; }
-#else
 	bool operator<(const Time& rhs)const { return is_less_than(rhs); }
 	bool operator>(const Time& rhs)const { return is_more_than(rhs); }
-	bool operator<=(const Time& rhs)const { return is_less_than(rhs)||is_equal(rhs); }
-	bool operator>=(const Time& rhs)const { return is_more_than(rhs)||is_equal(rhs); }
+	bool operator<=(const Time& rhs)const { return !is_more_than(rhs); }
+	bool operator>=(const Time& rhs)const { return !is_less_than(rhs); }
 	bool operator==(const Time& rhs)const { return is_equal(rhs); }
 	bool operator!=(const Time& rhs)const { return !is_equal(rhs); }
-#endif
 
 	template<typename U> const Time& operator+=(const U &rhs) { value_+=static_cast<value_type>(rhs); return *this; }
 	template<typename U> const Time& operator-=(const U &rhs) { value_-=static_cast<value_type>(rhs); return *this; }
@@ -155,14 +157,14 @@ public:
 //! This operator allows the combining of Time::Format flags using the '|' operator
 /*!	\see Time::Format, Time::get_string() */
 inline Time::Format operator|(Time::Format lhs, Time::Format rhs)
-{ return static_cast<Time::Format>((int)lhs|(int)rhs); }
+	{ return static_cast<Time::Format>((int)lhs|(int)rhs); }
 
 //! This operator is for checking Time::Format flags.
 /*! Don't think of it as "less then or equal to", but think of it
 **	like an arrow. Is \a rhs inside of \a lhs ?
 **	\see Time::Format, Time::get_string() */
 inline bool operator<=(Time::Format lhs, Time::Format rhs)
-{ return (static_cast<int>(lhs) & static_cast<int>(rhs))==static_cast<int>(rhs); }
+	{ return (static_cast<int>(lhs) & static_cast<int>(rhs))==static_cast<int>(rhs); }
 
 }; // END of namespace synfig
 

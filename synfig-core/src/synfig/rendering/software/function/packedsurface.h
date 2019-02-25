@@ -91,10 +91,23 @@ public:
 
 		Color get_pixel(int x, int y) const;
 
+		template< etl::clamping::func clamp_x = etl::clamping::clamp,
+				  etl::clamping::func clamp_y = etl::clamping::clamp >
 		inline static Color reader(const void *surf, int x, int y)
-			{ return ((const Reader*)surf)->get_pixel(x, y); }
+		{
+			const Reader &r = *(const Reader*)surf;
+			return clamp_x(x, r.surface->width) && clamp_y(y, r.surface->height)
+			     ? r.get_pixel(x, y) : Color();
+		}
+
+		template< etl::clamping::func clamp_x = etl::clamping::clamp,
+				  etl::clamping::func clamp_y = etl::clamping::clamp >
 		inline static ColorAccumulator reader_cook(const void *surf, int x, int y)
-			{ return ColorPrep::cook_static(reader(surf, x, y)); }
+		{
+			const Reader &r = *(const Reader*)surf;
+			return clamp_x(x, r.surface->width) && clamp_y(y, r.surface->height)
+				 ? ColorPrep::cook_static(r.get_pixel(x, y)) : Color();
+		}
 	};
 
 	struct DiscreteHelper {
@@ -112,6 +125,8 @@ public:
 		bool in_range(Color::value_type c) const
 			{ return min <= c && c <= max; }
 	};
+
+	typedef etl::sampler<ColorAccumulator, float, ColorAccumulator, Reader::reader_cook> Sampler;
 
 private:
 	mutable synfig::Mutex mutex;

@@ -6,9 +6,13 @@ cmake_minimum_required(VERSION 3.1)
 ##
 
 # TODO: check if we really need all of them
-find_package(Boost REQUIRED system filesystem program_options chrono)
+find_package(Boost REQUIRED system)
 
 find_package(ZLIB REQUIRED)
+
+## ETL doesn't install a package configuration so find package will fail
+# find_package(ETL REQUIRED)
+
 
 ## TODO: investigate these more closely
 set(CMAKE_THREAD_PREFER_PTHREAD ON)
@@ -75,7 +79,6 @@ configure_file(autorevision.h.cmake.in autorevision.h)
 
 ## for config
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 ##

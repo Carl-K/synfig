@@ -154,7 +154,7 @@ public:
 	const etl::handle<SelectionManager> &get_selection_manager() { return selection_manager_; }
 
 	synfig::FileSystem::Handle get_container() const { return container_; };
-	bool save_surface(const synfig::rendering::Surface::Handle &surface, const synfig::String &filename);
+	bool save_surface(const synfig::rendering::SurfaceResource::Handle &surface, const synfig::String &filename);
 	bool save_surface(const synfig::Surface &surface, const synfig::String &filename);
 	bool save_layer(const synfig::Layer::Handle &layer);
 	void save_all_layers();
@@ -176,14 +176,15 @@ public:
 	//! Saves the instance to current temporary container
 	bool backup();
 
+	//! generate layer name (also known in code as 'description')
+	synfig::String generate_new_description(const synfig::Layer::Handle &layer);
+
 	//! create unique file name for an embedded image layer (if image filename is empty, description layer is used)
-	bool generate_new_name(
-			synfig::Layer::Handle layer,
-			synfig::Canvas::Handle canvas,
-			synfig::FileSystem::Handle file_system,
-			synfig::String &out_description,
-			synfig::String &out_filename,
-			synfig::String &out_filename_param);
+	void generate_new_name(
+		const synfig::Layer::Handle &layer,
+		synfig::String &out_description,
+		synfig::String &out_filename,
+		synfig::String &out_filename_param );
 
 public:	// Interfaces to internal information
 	sigc::signal<void>& signal_filename_changed() { return signal_filename_changed_; }

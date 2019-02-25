@@ -45,7 +45,6 @@
 #include "layers/layer_pastecanvas.h"
 
 #include "rendering/task.h"
-#include "rendering/common/task/tasksurfaceempty.h"
 
 #endif
 
@@ -109,6 +108,23 @@ IndependentContext::set_time(Time time, bool force)const
 	// Set up a writer lock
 	RWLock::WriterLock lock((*context)->get_rw_lock());
 	(*context)->set_time(context+1,time);
+}
+
+void
+IndependentContext::load_resources(Time time, bool force)const
+{
+	IndependentContext context(*this);
+	while(*context)
+	{
+		if ( (*context)->active() )
+			break;
+		++context;
+	}
+	if (!*context) return;
+
+	// Set up a writer lock
+	//RWLock::WriterLock lock((*context)->get_rw_lock());
+	(*context)->load_resources(context+1,time);
 }
 
 void
@@ -394,7 +410,7 @@ Context::accelerated_render(Surface *surface,int quality, const RendDesc &rendde
 #endif	// SYNFIG_PROFILE_LAYERS
 		return ret;
 	}
-	catch(std::bad_alloc)
+	catch(std::bad_alloc&)
 	{
 		synfig::error("Context::accelerated_render(): Layer \"%s\" threw a bad_alloc exception!",(*context)->get_name().c_str());
 #ifdef _DEBUG
@@ -481,7 +497,7 @@ Context::accelerated_cairorender(cairo_t *cr,int quality, const RendDesc &rendde
 #endif	// SYNFIG_PROFILE_LAYERS
 		return ret;
 	}
-	catch(std::bad_alloc)
+	catch(std::bad_alloc&)
 	{
 		synfig::error("Context::accelerated_cairorender(): Layer \"%s\" threw a bad_alloc exception!",(*context)->get_name().c_str());
 #ifdef _DEBUG
@@ -513,6 +529,6 @@ Context::build_rendering_task() const
 
 	return *context
 		 ? (*context)->build_rendering_task(context.get_next())
-		 : rendering::Task::Handle(new rendering::TaskSurfaceEmpty());
+		 : rendering::Task::Handle();
 }
 

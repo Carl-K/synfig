@@ -633,7 +633,8 @@ StatePolygon_Context::StatePolygon_Context(CanvasView* canvas_view):
 	options_table.set_row_spacings(GAP); // row gap
 	options_table.set_row_spacing(0, GAP*2); // the gap between first and second row.
 	options_table.set_row_spacing(2, 1); // row gap between label and icon of layer type
-	options_table.set_row_spacing(10, 0); // the final row using border width of table
+	//options_table.set_row_spacing(9, 0); // the final row using border width of table
+	options_table.set_margin_bottom(0);
 	
 	options_table.show_all();
 
@@ -778,7 +779,8 @@ StatePolygon_Context::run()
 	for(i=0,iter=polygon_point_list.begin();iter!=polygon_point_list.end();++iter,++i)
 	{
 		*iter = transform.unperform(*iter);
-		new_list.push_back(*(new BLinePoint));
+		//new_list.push_back(*(new BLinePoint));
+		new_list.push_back(BLinePoint());
 		new_list[i].set_width(1);
 		new_list[i].set_vertex(*iter);
 		new_list[i].set_tangent(Point(0,0));
@@ -1379,7 +1381,6 @@ StatePolygon_Context::toggle_layer_creation()
 
 	// feather size
 	if (get_layer_polygon_flag() ||
-		get_layer_polygon_flag() ||
 		get_layer_region_flag() ||
 		get_layer_outline_flag() ||
 		get_layer_advanced_outline_flag())

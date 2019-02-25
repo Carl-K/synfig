@@ -23,16 +23,25 @@ MAINTAINERCLEANFILES = \
 	config.status \
 	.doc_stamp \
 	.DS_Store
-	
+
 DISTCLEANFILES = \
-	synfigstudio.desktop \
+	org.synfig.SynfigStudio.desktop \
 	$(appdata_DATA)
+
+if WITH_IMAGES
+IMAGE_DIR = images
+endif
+
+#if WITH_SOUNDS
+SOUND_DIR = sounds
+#endif
 
 SUBDIRS = \
 	build_tools \
 	brushes \
 	src \
-	images \
+	$(IMAGE_DIR) \
+	$(SOUND_DIR) \
 	plugins \
 	po
 
@@ -48,17 +57,16 @@ EXTRA_DIST = \
 	m4/cxx_macros.m4 \
 	m4/ETL.m4 \
 	ChangeLog.old \
-	synfigstudio.desktop.in \
-	synfigstudio.appdata.xml.in \
-	synfigstudio.xml.in \
+	org.synfig.SynfigStudio.desktop.in \
+	org.synfig.SynfigStudio.appdata.xml.in \
+	org.synfig.SynfigStudio.xml.in \
 	synfigstudio-thumbnailer.schemas.in
-
 
 DISTCHECK_CONFIGURE_FLAGS = --disable-update-mimedb
 
 # Desktop entry
 desktopdir = $(prefix)/share/applications
-desktop_DATA = synfigstudio.desktop
+desktop_DATA = org.synfig.SynfigStudio.desktop
 
 @INTLTOOL_DESKTOP_RULE@
 
@@ -67,15 +75,17 @@ mimeinfo_DATA            = synfigstudio.keys synfigstudio.mime
 
 # Appdata
 appdatadir = $(datadir)/appdata
-appdata_DATA = synfigstudio.appdata.xml
+appdata_DATA = org.synfig.SynfigStudio.appdata.xml
 @INTLTOOL_XML_RULE@
 
 # Icon
+if WITH_IMAGES
 icondir                 = $(datadir)/pixmaps
 icon_DATA               = images/synfig_icon.png images/sif_icon.png
+endif
 
 mimedir              = $(prefix)/share/mime/packages
-mime_DATA            = synfigstudio.xml
+mime_DATA            = org.synfig.SynfigStudio.xml
 
 ACLOCAL_AMFLAGS=-I m4
 
@@ -83,7 +93,6 @@ GREP=grep
 PRINTF=printf
 SH=sh
 DOXYGEN=doxygen
-#SVN_REPOSITORY=@SVN_REPOSITORY@
 
 SVN=svn
 TAG=@PACKAGE_TARNAME@_@VERSION_MAJ@_@VERSION_MIN@_@VERSION_REV@
@@ -96,23 +105,23 @@ stats:
 	-@echo  -- Stats
 	-@echo
 	-@$(PRINTF) "Total lines: "
-	-@wc -l $(shell find $(top_srcdir)/src -name '*.[ch]*' | $(GREP) -v libavcodec) | $(GREP) total
+	-@wc -l `shell find $(top_srcdir)/src -name '*.[ch]*' | $(GREP) -v libavcodec` | $(GREP) total
 	-@$(PRINTF) "Total size: "
-	-@du -hcs $(shell find $(top_srcdir)/src -name '*.[ch]*' | $(GREP) -v libavcodec) | $(GREP) total
-	-@echo 
+	-@du -hcs `shell find $(top_srcdir)/src -name '*.[ch]*' | $(GREP) -v libavcodec` | $(GREP) total
+	-@echo
 
 listfixmes:
 	-@echo
 	-@echo  -- List of pending FIXMEs
 	-@echo
-	-@$(GREP) FIXME -n $(shell find $(top_srcdir) -name '*.[ch]*' | grep -v svn)
+	-@$(GREP) FIXME -n `shell find $(top_srcdir) -name '*.[ch]*' | grep -v svn`
 	-@echo
 
 listhacks:
 	-@echo
 	-@echo  -- List of pending HACKs
 	-@echo
-	-@$(GREP) HACK -n $(shell find $(top_srcdir) -name '*.[ch]*' | grep -v svn)
+	-@$(GREP) HACK -n `shell find $(top_srcdir) -name '*.[ch]*' | grep -v svn`
 	-@echo
 
 run: check

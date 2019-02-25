@@ -49,6 +49,7 @@
 #include "time.h"
 #include "vector.h"
 #include "value.h"
+#include <giomm.h>
 
 /* === M A C R O S ========================================================= */
 
@@ -132,7 +133,7 @@
 	if (param=="Name" || param=="name" || param=="name__")								\
 		return name__;																	\
 	else if (param=="local_name__")														\
-		return dgettext("synfig",local_name__);
+		return synfigcore_localize(local_name__);
 
 //! Exports the version of the layer
 #define EXPORT_VERSION()																\
@@ -316,6 +317,15 @@ private:
 	//! Instead of that it connects to a zero canvas
 	//! \see Layer::set_canvas()
 	sigc::connection parent_death_connect_;
+
+	// added ability to monitor file changes
+	Glib::RefPtr<Gio::FileMonitor> file_monitor;
+	void on_file_changed(const Glib::RefPtr<Gio::File>&, const Glib::RefPtr<Gio::File>&, Gio::FileMonitorEvent);
+	sigc::connection monitor_connection;
+	std::string monitored_path;
+public:
+	bool monitor(const std::string& path); // append file monitor (returns true on success, false on fail)
+
 
 	/*
  -- ** -- S I G N A L S -------------------------------------------------------
@@ -560,6 +570,13 @@ public:
 	**	\see Context::set_time()
 	*/
 	void set_time(IndependentContext context, Time time)const;
+	
+	//! Loads external resources (frames) for the Layer recursively
+	/*!	\param context		Context iterator referring to next Layer.
+	**	\param time			writeme
+	**	\see Context::load_resources()
+	*/
+	void load_resources(IndependentContext context, Time time)const;
 
 	//! Sets the \a outline_grow for the Layer and those under it
 	/*!	\param context		Context iterator referring to next Layer.
@@ -596,6 +613,7 @@ public:
 
 protected:
 	virtual void set_time_vfunc(IndependentContext context, Time time) const;
+	virtual void load_resources_vfunc(IndependentContext context, Time time) const;
 	virtual void set_outline_grow_vfunc(IndependentContext context, Real outline_grow) const;
 	virtual rendering::Task::Handle build_rendering_task_vfunc(Context context) const;
 

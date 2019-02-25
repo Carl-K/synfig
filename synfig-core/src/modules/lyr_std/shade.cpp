@@ -52,11 +52,11 @@
 #include <synfig/segment.h>
 #include <synfig/cairo_renddesc.h>
 
-#include <synfig/rendering/primitive/affinetransformation.h>
+#include <synfig/rendering/primitive/transformationaffine.h>
 
 #include <synfig/rendering/common/task/taskblur.h>
 #include <synfig/rendering/common/task/tasktransformation.h>
-#include <synfig/rendering/common/task/taskpixelcolormatrix.h>
+#include <synfig/rendering/common/task/taskpixelprocessor.h>
 
 #endif
 
@@ -312,10 +312,10 @@ Layer_Shade::accelerated_render(Context context,Surface *surface,int quality, co
 		//be sure the surface is of the correct size
 		surface->set_wh(renddesc.get_w(),renddesc.get_h());
 
-		int u = halfsizex-(origin_u<0?origin_u:0), v = halfsizey-(origin_v<0?origin_v:0);
+		int v = halfsizey-(origin_v<0?origin_v:0);
 		for(y=0;y<renddesc.get_h();y++,v++)
 		{
-			u = halfsizex-(origin_u<0?origin_u:0);
+			int u = halfsizex-(origin_u<0?origin_u:0);
 			for(x=0;x<renddesc.get_w();x++,u++)
 			{
 				Color a(color);
@@ -385,10 +385,10 @@ Layer_Shade::accelerated_render(Context context,Surface *surface,int quality, co
 		Blur(size,type,&stagetwo)(blurred,workdesc.get_br()-workdesc.get_tl(),blurred);
 
 
-		int u = halfsizex-(origin_u<0?origin_u:0), v = halfsizey-(origin_v<0?origin_v:0);
+		int v = halfsizey-(origin_v<0?origin_v:0);
 		for(y=0;y<renddesc.get_h();y++,v++)
 		{
-			u = halfsizex-(origin_u<0?origin_u:0);
+			int u = halfsizex-(origin_u<0?origin_u:0);
 			for(x=0;x<renddesc.get_w();x++,u++)
 			{
 				Color a(color);
@@ -709,11 +709,8 @@ Layer_Shade::build_composite_fork_task_vfunc(ContextParams /* context_params */,
 	task_colormatrix->matrix = matrix;
 	task_colormatrix->sub_task() = task_blur;
 
-	rendering::AffineTransformation::Handle affine_transformation(new rendering::AffineTransformation());
-	affine_transformation->matrix.set_translate(origin);
-
-	rendering::TaskTransformation::Handle task_transformation(new rendering::TaskTransformation());
-	task_transformation->transformation = affine_transformation;
+	rendering::TaskTransformationAffine::Handle task_transformation(new rendering::TaskTransformationAffine());
+	task_transformation->transformation->matrix.set_translate(origin);
 	task_transformation->sub_task() = task_colormatrix;
 
 	return task_transformation;

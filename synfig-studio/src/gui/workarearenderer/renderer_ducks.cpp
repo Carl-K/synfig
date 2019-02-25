@@ -576,8 +576,10 @@ Renderer_Ducks::render_vfunc(
 					mag = ((*iter)->get_trans_point()-(*iter)->get_trans_origin()).mag();
 
 				Distance real_mag(mag, Distance::SYSTEM_UNITS);
-				if (!(*iter)->get_exponential())
-					real_mag.convert(App::distance_system,get_work_area()->get_rend_desc());
+				if (!(*iter)->get_exponential()) {
+					Canvas::Handle canvas = get_work_area()->get_canvas();
+					real_mag.convert(App::distance_system, canvas ? canvas->rend_desc() : RendDesc());
+				}
 
 				cr->save();
 
@@ -604,7 +606,7 @@ Renderer_Ducks::render_vfunc(
 			}
 			//! Tooltip time : width point position
 			if( (App::ui_handle_tooltip_flag&Duck::STRUCT_WIDTHPOINT) &&
-					(*iter)->get_type()&&Duck::TYPE_WIDTHPOINT_POSITION)
+					(*iter)->get_type() & Duck::TYPE_WIDTHPOINT_POSITION)
 			{
 				synfig::Canvas::Handle canvas_h(get_work_area()->get_canvas());
 				synfig::Time time(canvas_h?canvas_h->get_time():synfig::Time(0));
@@ -718,7 +720,7 @@ Renderer_Ducks::render_vfunc(
 					synfig::Time time(canvas_h?canvas_h->get_time():synfig::Time(0));
 					Transformation transformation = (*iter)->get_value_desc().get_value(time).get(Transformation());
 
-					const synfig::RendDesc rend_desc = get_work_area()->get_rend_desc();
+					const RendDesc rend_desc = canvas_h ? canvas_h->rend_desc() : RendDesc();
 					switch((*iter)->get_type()) {
 					case Duck::TYPE_POSITION:
 					{
@@ -800,7 +802,7 @@ Renderer_Ducks::render_vfunc(
 
 	}
 
-	for(;screen_duck_list.size();screen_duck_list.pop_front())
+	for(;!screen_duck_list.empty();screen_duck_list.pop_front())
 	{
 		Gdk::Color color(screen_duck_list.front().color);
 		double radius = 4;
